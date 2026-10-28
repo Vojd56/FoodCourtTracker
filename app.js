@@ -10,6 +10,34 @@ const $  = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const SVGNS = 'http://www.w3.org/2000/svg';
 
+/* Bezpečnostní a pomocné funkce */
+const esc = s => String(s ?? '').replace(/[&<>"']/g, m => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[m]));
+
+const safeUrl = url => {
+  if (!url || typeof url !== 'string') return null;
+  const trimmed = url.trim();
+  return /^https?:\/\//i.test(trimmed) ? trimmed : null;
+};
+
+const getSavedAuthorId = () => {
+  try {
+    const s = localStorage.getItem('fnk_active_author_v2');
+    if (s && s !== '__proto__' && s !== 'constructor') return s;
+  } catch {}
+  return 'vojta';
+};
+
+const setSavedAuthorId = id => {
+  if (!id || id === '__proto__' || id === 'constructor') return;
+  ui.reviewAuthorId = id;
+  try {
+    localStorage.setItem('fnk_active_author_v2', id);
+  } catch {}
+  if (window.DB) {
+    window.DB.setActiveAuthorId(id);
+  }
+};
+
 function setStorageStatus(shared) {
   const el = $('#storageStatus');
   if (!el) return;
@@ -28,8 +56,9 @@ function starsMarkup(rating) {
 
 function memberPillMarkup(member, isSelected = false) {
   if (!member) return '';
+  const safeColor = /^#[0-9a-fA-F]{6}$/.test(member.color) ? member.color : '#2563eb';
   const activeStyle = isSelected
-    ? `background-color:${esc(member.color)}; border-color:${esc(member.color)}; color:#fff;`
+    ? `background-color:${safeColor}; border-color:${safeColor}; color:#fff;`
     : `border-color:var(--line-2); background:#fff; color:var(--ink);`;
   return `
     <button type="button" class="author-pill ${isSelected ? 'active' : ''}" data-author="${esc(member.id)}" style="${activeStyle}">
@@ -47,7 +76,7 @@ let ui = {
   q: '',
   sel: null,
   viewMemberId: 'all', // 'all' = všichni, nebo konkrétní osoba 'vojta', 'peta', 'adel'
-  reviewAuthorId: 'vojta' // kdo právě píše recenzi
+  reviewAuthorId: getSavedAuthorId() // profil, za který se ukládá a hodnotí
 };
 
 function load() {
@@ -190,7 +219,6 @@ const FC_FILL = '#efe0c6';
 /* Stav podniku: červená = zatím ne, zelená = navštíveno */
 const NOPE = '#c0453a', YES = '#3b8559';
 
-const esc = s => String(s ?? '').replace(/[&<>"']/g, m => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[m]));
 const logoMarkup = (v, cls = '') => {
   const url = typeof logoUrl === 'function' ? logoUrl(v.id) : null;
   return url
@@ -928,9 +956,11 @@ function renderDetail() {
   const c = cat(v.cat), f = floorOf(v.floor);
 
   const members = window.DB ? window.DB.getMembers() : [];
-  let activeAuthor = (window.DB ? window.DB.getMember(ui.reviewAuthorId) : null) || members[0];
-  if (!activeAuthor && members.length) {
-    activeAuthor = members[0];
+  const currentAuthorId = ui.reviewAuthorId || getSavedAuthorId();
+  let activeAuthor = (window.DB ? window.DB.getMember(currentAuthorId) : null)
+    || (window.DB ? window.DB.getActiveAuthor() : null)
+    || members[0];
+  if (activeAuthor) {
     ui.reviewAuthorId = activeAuthor.id;
   }
 
@@ -959,7 +989,7 @@ function renderDetail() {
 
     <div class="flex-1 overflow-y-auto px-5 py-4 space-y-5 scroll-thin text-sm">
       ${v.desc ? `<p class="text-ink2 leading-relaxed">${esc(v.desc)}</p>` : ''}
-      ${v.open ? `<p class="text-xs text-ink2">${esc(v.open)}${v.web ? ` · <a href="${esc(v.web)}" target="_blank" rel="noopener" class="underline underline-offset-2 hover:text-ink">web</a>` : ''}</p>` : ''}
+      ${v.open ? `<p class="text-xs text-ink2">${esc(v.open)}${safeUrl(v.web) ? ` · <a href="${esc(safeUrl(v.web))}" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2 hover:text-ink">web</a>` : ''}</p>` : ''}
       ${v.tags?.length ? `<div class="flex flex-wrap gap-1.5">${v.tags.map(t => `<span class="chip static">${esc(t)}</span>`).join('')}</div>` : ''}
 
       <!-- POVINNÝ VÝBĚR: KDO HODNOTÍ / KDO TAM BYL -->
@@ -1066,9 +1096,9 @@ function renderDetail() {
   $$('#authorPillsList [data-author]').forEach(btn => {
     btn.onclick = () => {
       const aId = btn.dataset.author;
-      ui.reviewAuthorId = aId;
-      if (window.DB) window.DB.setActiveAuthorId(aId);
+      setSavedAuthorId(aId);
       renderDetail();
+      renderMemberNavTabs();
     };
   });
 
@@ -1234,7 +1264,7 @@ function openAddMemberModal() {
 
     try {
       const newM = await window.DB.addMember(name, selectedColor, selectedEmoji);
-      ui.reviewAuthorId = newM.id;
+      setSavedAuthorId(newM.id);
       ui.viewMemberId = newM.id;
       toast(`Přidána nová osoba: ${newM.logo} ${newM.name}`);
       closeModal();
@@ -1454,8 +1484,7 @@ function renderMemberNavTabs() {
       const mId = b.dataset.member;
       ui.viewMemberId = mId;
       if (mId !== 'all') {
-        ui.reviewAuthorId = mId;
-        window.DB.setActiveAuthorId(mId);
+        setSavedAuthorId(mId);
       }
       renderMemberNavTabs();
       renderAll();
@@ -1513,21 +1542,56 @@ document.addEventListener('click', e => {
     i.type = 'file'; i.accept = 'application/json';
     i.onchange = () => {
       const f = i.files[0]; if (!f) return;
+      if (f.size > 2 * 1024 * 1024) {
+        toast('Soubor zálohy je příliš velký (max 2 MB)', true);
+        return;
+      }
       const rd = new FileReader();
       rd.onload = () => {
         try {
           const d = JSON.parse(rd.result);
-          if (d && d.reviews) {
-            localStorage.setItem('fnk_reviews_v2', JSON.stringify(d.reviews));
-            if (d.members) localStorage.setItem('fnk_members_v2', JSON.stringify(d.members));
-            window.DB.init();
-            renderMemberNavTabs();
-            renderAll();
-            closeModal();
-            toast('Úspěšně importováno');
-          } else {
-            throw 0;
+          if (!d || typeof d !== 'object' || Array.isArray(d)) throw 0;
+
+          // Bezpečná validace recenzí (ochrana před Prototype Pollution)
+          if (d.reviews && typeof d.reviews === 'object' && !Array.isArray(d.reviews)) {
+            const cleanReviews = Object.create(null);
+            for (const [vId, authMap] of Object.entries(d.reviews)) {
+              if (vId === '__proto__' || vId === 'constructor' || vId === 'prototype') continue;
+              if (typeof authMap !== 'object' || !authMap || Array.isArray(authMap)) continue;
+              cleanReviews[vId] = Object.create(null);
+              for (const [aId, r] of Object.entries(authMap)) {
+                if (aId === '__proto__' || aId === 'constructor' || aId === 'prototype') continue;
+                if (typeof r !== 'object' || !r) continue;
+                const rNum = Number(r.rating || 0);
+                cleanReviews[vId][aId] = {
+                  visited: Boolean(r.visited),
+                  rating: Math.max(0, Math.min(5, isNaN(rNum) ? 0 : Math.round(rNum))),
+                  note: String(r.note || '').slice(0, 1000),
+                  date: (r.date && /^\d{4}-\d{2}-\d{2}$/.test(String(r.date))) ? String(r.date) : null
+                };
+              }
+            }
+            localStorage.setItem('fnk_reviews_v2', JSON.stringify(cleanReviews));
           }
+
+          // Bezpečná validace členů
+          if (Array.isArray(d.members)) {
+            const cleanMembers = d.members.filter(m => m && typeof m === 'object').map(m => ({
+              id: String(m.id || '').replace(/[^a-z0-9_-]/g, '').slice(0, 50),
+              name: String(m.name || '').slice(0, 30),
+              color: /^#[0-9a-fA-F]{6}$/.test(m.color) ? m.color : '#3b8559',
+              logo: String(m.logo || '👤').slice(0, 8)
+            })).filter(m => m.id && m.name && m.id !== '__proto__');
+            if (cleanMembers.length) {
+              localStorage.setItem('fnk_members_v2', JSON.stringify(cleanMembers));
+            }
+          }
+
+          if (window.DB) window.DB.init();
+          renderMemberNavTabs();
+          renderAll();
+          closeModal();
+          toast('Úspěšně importováno');
         } catch { toast('Neplatný soubor zálohy', true); }
       };
       rd.readAsText(f);
@@ -1572,19 +1636,50 @@ function renderAll() {
   renderChips(); renderList(); renderProgress(); renderFloors(); refreshMap(); renderDetail();
 }
 
+function initCookieBanner() {
+  const banner = $('#cookieBanner');
+  const btn = $('#btnCookieAccept');
+  if (!banner || !btn) return;
+
+  try {
+    const accepted = localStorage.getItem('fnk_cookie_consent');
+    if (!accepted) {
+      banner.classList.remove('hidden');
+      banner.classList.add('flex');
+    }
+  } catch {}
+
+  btn.onclick = () => {
+    try {
+      localStorage.setItem('fnk_cookie_consent', 'true');
+    } catch {}
+    banner.classList.add('hidden');
+    banner.classList.remove('flex');
+  };
+}
+
 renderFloors();
 drawFloor();
 renderAll();
 fit(false);
+initCookieBanner();
 
 if (window.DB) {
   window.DB.init().then(() => {
+    const dbAuthor = window.DB.getActiveAuthorId();
+    if (dbAuthor) {
+      ui.reviewAuthorId = dbAuthor;
+    }
     renderMemberNavTabs();
     renderAll();
     setStorageStatus(window.DB.isCloud());
   });
 
   window.DB.onChange(() => {
+    const dbAuthor = window.DB.getActiveAuthorId();
+    if (dbAuthor && dbAuthor !== ui.reviewAuthorId) {
+      ui.reviewAuthorId = dbAuthor;
+    }
     renderMemberNavTabs();
     renderAll();
     setStorageStatus(window.DB.isCloud());

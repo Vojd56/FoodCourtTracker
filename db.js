@@ -105,6 +105,14 @@
                 if (!existingIds.has(def.id)) mergedMembers.push(def);
               });
               members = mergedMembers;
+
+              // Zachovat aktivního autora z paměti prohlížeče
+              const savedAct = localStorage.getItem(ACTIVE_AUTHOR_KEY);
+              if (savedAct && members.some(m => m.id === savedAct)) {
+                activeAuthorId = savedAct;
+              } else if (!members.some(m => m.id === activeAuthorId)) {
+                activeAuthorId = members[0] ? members[0].id : 'vojta';
+              }
             }
           }
 
@@ -113,14 +121,18 @@
           if (resR.ok) {
             const dbReviews = await resR.json();
             if (Array.isArray(dbReviews)) {
-              const cloudReviews = {};
+              const cloudReviews = Object.create(null);
               dbReviews.forEach(r => {
-                if (!cloudReviews[r.venue_id]) cloudReviews[r.venue_id] = {};
-                cloudReviews[r.venue_id][r.author_id] = {
+                const vId = String(r.venue_id || '').slice(0, 100);
+                const aId = String(r.author_id || '').slice(0, 50);
+                if (!vId || !aId || vId === '__proto__' || aId === '__proto__') return;
+                if (!cloudReviews[vId]) cloudReviews[vId] = Object.create(null);
+                const ratingNum = Number(r.rating || 0);
+                cloudReviews[vId][aId] = {
                   visited: Boolean(r.visited),
-                  rating: Number(r.rating || 0),
-                  note: String(r.note || ''),
-                  date: r.visit_date || null
+                  rating: Math.max(0, Math.min(5, isNaN(ratingNum) ? 0 : Math.round(ratingNum))),
+                  note: String(r.note || '').slice(0, 1000),
+                  date: (r.visit_date && /^\d{4}-\d{2}-\d{2}$/.test(String(r.visit_date))) ? String(r.visit_date) : null
                 };
               });
               reviews = cloudReviews;
@@ -172,19 +184,28 @@
 
     // Přidání nového jména a loga/symbolu
     async addMember(name, color = '#3b8559', logo = '🍔') {
-      name = (name || '').trim();
+      name = (name || '').trim().replace(/[\u0000-\u001F\u007F-\u009F]/g, '');
       if (!name) throw new Error('Zadejte jméno osoby.');
+      if (name.length > 30) throw new Error('Jméno je příliš dlouhé (max 30 znaků).');
 
-      const cleanId = name.toLowerCase().replace(/[^a-z0-9]/g, '') || ('person_' + Date.now());
-      if (members.some(m => m.name.toLowerCase() === name.toLowerCase())) {
+      // Bezpečné ID (normalizace české diakritiky, zachování pouze a-z0-9_-)
+      const cleanId = name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9_-]/g, '') || ('person_' + Date.now());
+      if (cleanId === '__proto__' || cleanId === 'constructor' || cleanId === 'prototype') {
+        throw new Error('Neplatné jméno osoby.');
+      }
+
+      if (members.some(m => m.name.toLowerCase() === name.toLowerCase() || m.id === cleanId)) {
         throw new Error('Osoba s tímto jménem již existuje.');
       }
+
+      const safeColor = /^#[0-9a-fA-F]{6}$/.test(color) ? color : '#3b8559';
+      const safeLogo = (logo || '🍔').trim().slice(0, 8);
 
       const newMember = {
         id: cleanId,
         name: name,
-        color: color || '#3b8559',
-        logo: (logo || '🍔').trim()
+        color: safeColor,
+        logo: safeLogo
       };
 
       members.push(newMember);
@@ -211,16 +232,29 @@
 
     // Uložení recenze podniku pro vybranou osobu
     async saveReview(venueId, authorId, data) {
-      if (!reviews[venueId]) reviews[venueId] = {};
+      if (!venueId || !authorId) return;
+      const vId = String(venueId).trim().slice(0, 100);
+      const aId = String(authorId).trim().slice(0, 50);
+      if (vId === '__proto__' || aId === '__proto__') return;
+
+      if (!reviews[vId]) reviews[vId] = {};
+
+      const ratingNum = Number(data.rating || 0);
+      const safeRating = Math.max(0, Math.min(5, isNaN(ratingNum) ? 0 : Math.round(ratingNum)));
+      const safeNote = String(data.note || '').slice(0, 1000).replace(/[\u0000-\u0008\u000B-\u000C\u000E-\u001F]/g, '');
+      let safeDate = null;
+      if (data.date && /^\d{4}-\d{2}-\d{2}$/.test(String(data.date))) {
+        safeDate = String(data.date);
+      }
 
       const rec = {
         visited: Boolean(data.visited),
-        rating: Number(data.rating || 0),
-        note: String(data.note || ''),
-        date: data.date || null
+        rating: safeRating,
+        note: safeNote,
+        date: safeDate
       };
 
-      reviews[venueId][authorId] = rec;
+      reviews[vId][aId] = rec;
       saveLocalState();
 
       if (isCloudActive && this.isConfigured()) {
@@ -231,8 +265,8 @@
             method: 'POST',
             headers: { ...headers, 'Prefer': 'resolution=merge-duplicates' },
             body: JSON.stringify([{
-              venue_id: venueId,
-              author_id: authorId,
+              venue_id: vId,
+              author_id: aId,
               visited: rec.visited,
               rating: rec.rating,
               note: rec.note,

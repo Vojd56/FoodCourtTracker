@@ -120,6 +120,24 @@
 
 <div id="toast" class="fixed bottom-5 left-1/2 -translate-x-1/2 z-50 hidden px-4 py-2 bg-ink text-paper text-sm"></div>
 
+<!-- Cookie lišta / Informace o ukládání -->
+<aside id="cookieBanner" class="fixed bottom-4 left-4 right-4 sm:left-auto sm:right-4 sm:max-w-md z-40 bg-paper border border-line2 shadow-2xl p-4 hidden flex-col gap-3 animate-slideup" role="region" aria-label="Informace o používání úložiště a cookies">
+  <div class="flex items-start gap-3">
+    <span class="text-2xl select-none" aria-hidden="true">🍪</span>
+    <div class="space-y-1 text-xs text-ink2 leading-relaxed">
+      <p class="font-semibold text-ink text-sm">Používání paměti prohlížeče & cookies</p>
+      <p>
+        Tento web používá paměť prohlížeče (LocalStorage) pro zapamatování vašeho zvoleného profilu hodnotitele (např. Adél, Vojta, Peťa…), zaznamenaných recenzí a nastavení mapy bez nutnosti přihlašování. Žádná data nepředáváme třetím stranám.
+      </p>
+    </div>
+  </div>
+  <div class="flex items-center justify-end gap-2 pt-2 border-t border-line">
+    <button id="btnCookieAccept" class="px-4 py-1.5 bg-ink text-paper text-xs font-semibold hover:bg-black transition-colors cursor-pointer">
+      Rozumím a přijmout
+    </button>
+  </div>
+</aside>
+
 <script src="config.js"></script>
 <script src="db.js"></script>
 <script src="plan.js"></script>

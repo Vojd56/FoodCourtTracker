@@ -291,4 +291,13 @@
   padding: .5rem .75rem; border: 1px solid var(--line); background: #fff;
 }
 
+@keyframes slideup {
+  from { transform: translateY(14px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+.animate-slideup {
+  animation: slideup .18s ease-out forwards;
+}
+
 
