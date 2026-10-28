@@ -40,11 +40,27 @@ const setSavedAuthorId = id => {
 
 function setStorageStatus(shared) {
   const el = $('#storageStatus');
-  if (!el) return;
-  if (window.DB && window.DB.isCloud()) {
-    el.innerHTML = '<span class="text-yes font-medium">● Supabase Cloud (Vercel)</span>';
-  } else {
-    el.textContent = 'Uloženo v prohlížeči (offline/lokálně)';
+  const badge = $('#cloudStatusBadge');
+  const isCloud = (typeof shared === 'boolean') ? shared : (window.DB && window.DB.isCloud());
+
+  if (el) {
+    if (isCloud) {
+      el.innerHTML = '<span class="text-yes font-semibold flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-yes"></span>Supabase Cloud (Online)</span>';
+    } else {
+      el.innerHTML = '<span class="text-ink3 flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-no"></span>Lokální režim (Offline)</span>';
+    }
+  }
+
+  if (badge) {
+    if (isCloud) {
+      badge.className = 'flex items-center gap-1.5 px-2 py-1 text-[11px] font-semibold border border-yes/40 bg-yes/10 text-yes cursor-pointer shrink-0 transition-colors';
+      badge.innerHTML = '<span class="w-2 h-2 rounded-full bg-yes animate-pulse"></span><span class="font-bold">Cloud</span>';
+      badge.title = 'Databáze je online (Supabase Cloud). Kliknutím otevřete přehled.';
+    } else {
+      badge.className = 'flex items-center gap-1.5 px-2 py-1 text-[11px] font-semibold border border-line bg-paper text-ink3 cursor-pointer shrink-0 transition-colors';
+      badge.innerHTML = '<span class="w-2 h-2 rounded-full bg-ink3"></span><span class="font-bold">Offline</span>';
+      badge.title = 'Lokální režim. Kliknutím otevřete nastavení.';
+    }
   }
 }
 
@@ -1351,14 +1367,40 @@ $('#btnStats').onclick = () => {
 };
 
 /* MODÁL DATA & NASTAVENÍ DATABÁZE */
-$('#btnMenu').onclick = () => openModal(`${modalHead('Data & Databáze')}
+$('#btnMenu').onclick = () => {
+  const isCloud = window.DB && window.DB.isCloud();
+  const cfg = window.APP_CONFIG || {};
+
+  openModal(`${modalHead('Data & Databáze')}
   <div class="p-5 space-y-4 text-sm">
+    <!-- Stav připojení k databázi -->
+    <div class="p-3.5 ${isCloud ? 'bg-yes/10 border-yes/40' : 'bg-paper border-line2'} border space-y-2">
+      <div class="flex items-center justify-between">
+        <div class="font-semibold text-xs flex items-center gap-1.5 ${isCloud ? 'text-yes' : 'text-ink2'}">
+          <span class="w-2.5 h-2.5 rounded-full ${isCloud ? 'bg-yes animate-pulse' : 'bg-ink3'}"></span>
+          <span>${isCloud ? 'PŘIPOJENO K SUPABASE CLOUDU' : 'OFFLINE / LOKÁLNÍ REŽIM'}</span>
+        </div>
+        <button id="btnForceSync" class="text-xs text-ink hover:underline font-semibold flex items-center gap-1">
+          🔄 Synchronizovat teď
+        </button>
+      </div>
+      <p class="text-xs text-ink2 leading-relaxed">
+        ${isCloud
+          ? `Databáze je <b>online</b> a propojena se Supabase. Všechny recenze i návštěvy se automaticky synchronizují v reálném čase mezi všemi zařízeními.`
+          : `Aplikace momentálně běží v lokálním režimu na paměti tohoto zařízení.`}
+      </p>
+      ${isCloud ? `
+        <div class="text-[11px] text-ink3 font-mono truncate pt-1 border-t border-line">
+          URL: ${esc(cfg.supabaseUrl)}
+        </div>
+      ` : ''}
+    </div>
+
     <div>
-      <div class="text-xs font-semibold text-ink2 uppercase tracking-wider mb-2">Cloudová Databáze (Vercel / Supabase)</div>
-      <p class="text-xs text-ink2 mb-3">Chcete-li, aby všichni na různých zařízeních a na Vercelu viděli stejné návštěvy, připojte Supabase.</p>
+      <div class="text-xs font-semibold text-ink2 uppercase tracking-wider mb-2">Správa připojení</div>
       <button id="mDbSettings" class="btn-ghost flex items-center justify-center gap-2 font-medium !text-ink">
         <svg class="w-4 h-4 text-yes" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4"/></svg>
-        Nastavení Supabase databáze
+        Zkontrolovat / změnit API klíče
       </button>
     </div>
 
@@ -1381,6 +1423,20 @@ $('#btnMenu').onclick = () => openModal(`${modalHead('Data & Databáze')}
       <button id="mClear" class="btn-ghost hover:!border-no hover:!text-no">Smazat všechna data</button>
     </div>
   </div>`);
+
+  const btnSync = $('#btnForceSync');
+  if (btnSync) {
+    btnSync.onclick = async () => {
+      toast('Synchronizuji se Supabase…');
+      await syncFromCloud();
+      closeModal();
+      toast('Synchronizace dokončena!');
+    };
+  }
+};
+
+const cloudBadge = $('#cloudStatusBadge');
+if (cloudBadge) cloudBadge.onclick = () => $('#btnMenu').click();
 
 function openDbSettingsModal() {
   const cfg = window.APP_CONFIG || {};
