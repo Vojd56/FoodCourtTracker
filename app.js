@@ -97,87 +97,21 @@ function save(venueId = null, authorId = null, recordData = null, silent = false
   } catch {}
 }
 
-/* Server je sdílená (globální) databáze, localStorage je lokální kopie.
-   Změny, které se nepodařilo odeslat, čekají ve frontě a odešlou se při
-   příští synchronizaci. */
-const PEND_KEY = LS_KEY + ':pending';   // { ids: [...], clear: bool }
-const SYNCED_KEY = LS_KEY + ':synced';  // už se někdy načetla data ze serveru
-
-const pending = () => {
-  try { return { ids: [], clear: false, ...JSON.parse(localStorage.getItem(PEND_KEY) || '{}') }; }
-  catch { return { ids: [], clear: false }; }
-};
-const setPending = p => {
+/* Synchronizace s cloudovou Supabase databází */
+let isSyncing = false;
+async function syncFromCloud() {
+  if (isSyncing || !window.DB || !window.DB.isConfigured()) return;
+  isSyncing = true;
   try {
-    p.ids.length || p.clear ? localStorage.setItem(PEND_KEY, JSON.stringify(p)) : localStorage.removeItem(PEND_KEY);
-  } catch {}
-};
-
-async function post(body) {
-  const res = await fetch('api.php', {
-    method: 'POST',
-    cache: 'no-store',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body)
-  });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-}
-
-async function syncVenueToServer(id) {
-  const r = state.venues[id];
-  if (!r) { const p = pending(); p.ids = p.ids.filter(x => x !== id); setPending(p); return; }
-  try {
-    await post({ id, visited: r.visited ? 1 : 0, rating: r.rating || 0, note: r.note || '', date: r.date || null });
-    const p = pending(); p.ids = p.ids.filter(x => x !== id); setPending(p);
-  } catch {
-    const p = pending(); if (!p.ids.includes(id)) p.ids.push(id); setPending(p);
-  }
-}
-
-async function clearServer() {
-  try {
-    await post({ clear: true });
-    setPending({ ids: [], clear: false });
-  } catch {
-    setPending({ ids: [], clear: true });
-  }
-}
-
-let syncing = false;
-async function syncAllFromServer() {
-  if (syncing) return;
-  syncing = true;
-  try {
-    const p = pending();
-    if (p.clear) { await post({ clear: true }); setPending({ ids: p.ids, clear: false }); }
-    for (const id of pending().ids) await syncVenueToServer(id);
-
-    const res = await fetch('api.php', { cache: 'no-store' });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
-    if (!data || !data.venues || Array.isArray(data.venues)) throw new Error('bad payload');
-
-    const server = data.venues;
-    const first = !localStorage.getItem(SYNCED_KEY);
-    const waiting = new Set(pending().ids);
-    const merged = { ...server };
-    const meaningful = r => r && (r.visited || r.rating || r.note || r.date);
-    // Změny čekající na odeslání a (při prvním připojení) lokální data mají přednost.
-    for (const [id, r] of Object.entries(state.venues)) {
-      if (waiting.has(id) || (first && !(id in server) && meaningful(r))) {
-        merged[id] = r;
-        if (!waiting.has(id)) syncVenueToServer(id);
-      }
-    }
-    state.venues = merged;
-    localStorage.setItem(LS_KEY, JSON.stringify(state));
-    localStorage.setItem(SYNCED_KEY, '1');
+    const success = await window.DB.init();
+    renderMemberNavTabs();
     renderAll();
-    setStorageStatus(true);
-  } catch {
+    setStorageStatus(success);
+  } catch (err) {
+    console.warn('[Sync] Chyba synchronizace:', err);
     setStorageStatus(false);
   } finally {
-    syncing = false;
+    isSyncing = false;
   }
 }
 
@@ -1768,7 +1702,9 @@ if (window.DB) {
   });
 }
 
-syncAllFromServer();
-window.addEventListener('focus', syncAllFromServer);
+syncFromCloud();
+window.addEventListener('focus', syncFromCloud);
+window.addEventListener('online', syncFromCloud);
+setInterval(syncFromCloud, 25000); // Automatická synchronizace pro celou partu
 
 })();
