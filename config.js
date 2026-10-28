@@ -11,7 +11,7 @@
   // Výchozí konfigurace (propojeno s vaší Supabase PostgreSQL databází)
   const DEFAULT_CONFIG = {
     supabaseUrl: 'https://ludwxqvhdexkagwmzgwt.supabase.co',
-    supabaseAnonKey: ''
+    supabaseAnonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imx1ZHd4cXZoZGV4a2Fnd216Z3d0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTMxODM5NTYsImV4cCI6MjEwODc1OTk1Nn0.pUdwjZpgqZHmvcIhTjgvbBkoa8RsY1FacYqPWflvnjU'
   };
 
   function loadConfig() {
