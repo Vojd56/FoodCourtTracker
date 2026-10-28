@@ -86,11 +86,11 @@ function load() {
   } catch { return { venues: {} }; }
 }
 
-function save(venueId = null, authorId = null, recordData = null) {
+function save(venueId = null, authorId = null, recordData = null, silent = false) {
   if (venueId && window.DB) {
     const aId = authorId || ui.reviewAuthorId;
     const r = recordData || rec(venueId, aId);
-    window.DB.saveReview(venueId, aId, r);
+    window.DB.saveReview(venueId, aId, r, silent);
   }
   try {
     localStorage.setItem(LS_KEY, JSON.stringify(state));
@@ -941,7 +941,7 @@ function renderFloors() {
    ============================================================ */
 function select(id, focus) {
   ui.sel = (ui.sel === id && !focus) ? null : id;
-  refreshMap(); renderList(); renderDetail();
+  refreshMap(); renderList(); renderDetail(true);
   if (!ui.sel) return;
   const v = venue(ui.sel);
   if (!v) return;
@@ -949,9 +949,19 @@ function select(id, focus) {
   else requestAnimationFrame(() => ensureVisible(v));
 }
 
-function renderDetail() {
+function renderDetail(force = false) {
   const p = $('#detail');
   if (!ui.sel) { p.classList.add('hidden'); p.classList.remove('flex'); return; }
+
+  // Pokud uživatel zrovna píše v poli poznámky nebo data a není vynuceno překreslení,
+  // nepřekreslujeme DOM, aby neztratil fokus a mohl nepřetržitě psát!
+  if (!force) {
+    const activeEl = document.activeElement;
+    if (activeEl && (activeEl.id === 'dNote' || activeEl.id === 'dDate')) {
+      return;
+    }
+  }
+
   const v = venue(ui.sel);
   const c = cat(v.cat), f = floorOf(v.floor);
 
@@ -1097,7 +1107,7 @@ function renderDetail() {
     btn.onclick = () => {
       const aId = btn.dataset.author;
       setSavedAuthorId(aId);
-      renderDetail();
+      renderDetail(true);
       renderMemberNavTabs();
     };
   });
@@ -1125,7 +1135,7 @@ function renderDetail() {
       dateInp.onchange = e => {
         const cur = window.DB.getReview(v.id, aId) || { visited: true, rating: 0, note: '', date: null };
         cur.date = e.target.value || null;
-        save(v.id, aId, cur);
+        save(v.id, aId, cur, true);
       };
     }
 
@@ -1134,11 +1144,21 @@ function renderDetail() {
       let nt;
       noteInp.oninput = e => {
         clearTimeout(nt);
+        const val = e.target.value;
         nt = setTimeout(() => {
           const cur = window.DB.getReview(v.id, aId) || { visited: true, rating: 0, note: '', date: null };
-          cur.note = e.target.value;
-          save(v.id, aId, cur);
+          cur.note = val;
+          save(v.id, aId, cur, true); // silent = true: uloží se do cloudu i paměti, ale nepřekreslí detail
         }, 300);
+      };
+
+      noteInp.onblur = () => {
+        clearTimeout(nt);
+        const cur = window.DB.getReview(v.id, aId) || { visited: true, rating: 0, note: '', date: null };
+        if (cur.note !== noteInp.value) {
+          cur.note = noteInp.value;
+          save(v.id, aId, cur, true);
+        }
       };
     }
   }
@@ -1633,9 +1653,14 @@ const closeSidebar = () => { $('#sidebar').classList.add('-translate-x-full'); $
 $('#btnSidebar').onclick = () => $('#sidebar').classList.contains('-translate-x-full') ? openSidebar() : closeSidebar();
 $('#scrim').onclick = closeSidebar;
 
-function renderAll() {
+function renderAll(force = false) {
   $$('.flt').forEach(b => b.classList.toggle('on', b.dataset.filter === ui.filter));
-  renderChips(); renderList(); renderProgress(); renderFloors(); refreshMap(); renderDetail();
+  renderChips(); renderList(); renderProgress(); renderFloors(); refreshMap();
+
+  const activeEl = document.activeElement;
+  if (force || !activeEl || (activeEl.id !== 'dNote' && activeEl.id !== 'dDate')) {
+    renderDetail(force);
+  }
 }
 
 function initCookieBanner() {

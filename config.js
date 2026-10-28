@@ -20,10 +20,13 @@
       if (stored) {
         const parsed = JSON.parse(stored);
         if (parsed && typeof parsed === 'object') {
-          return {
-            supabaseUrl: parsed.supabaseUrl || DEFAULT_CONFIG.supabaseUrl,
-            supabaseAnonKey: parsed.supabaseAnonKey || DEFAULT_CONFIG.supabaseAnonKey
-          };
+          const u = (parsed.supabaseUrl && parsed.supabaseUrl.trim()) || DEFAULT_CONFIG.supabaseUrl;
+          let k = (parsed.supabaseAnonKey && parsed.supabaseAnonKey.trim()) || DEFAULT_CONFIG.supabaseAnonKey;
+          // Pokud byl v localStorage starý secret klíč nebo prázdný řetězec, použít platný anon klíč
+          if (!k || k.startsWith('sb_secret_')) {
+            k = DEFAULT_CONFIG.supabaseAnonKey;
+          }
+          return { supabaseUrl: u, supabaseAnonKey: k };
         }
       }
     } catch {}

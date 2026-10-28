@@ -94,6 +94,9 @@
           const baseUrl = getBaseUrl();
           const headers = getHeaders();
 
+          let membersLoaded = false;
+          let reviewsLoaded = false;
+
           // 1. Načteme členy ze Supabase
           const resM = await fetch(baseUrl + '/rest/v1/members?select=*', { headers });
           if (resM.ok) {
@@ -114,6 +117,9 @@
                 activeAuthorId = members[0] ? members[0].id : 'vojta';
               }
             }
+            membersLoaded = true;
+          } else {
+            console.error('[DB] Nelze načíst členy ze Supabase:', resM.status, await resM.text());
           }
 
           // 2. Načteme recenze ze Supabase
@@ -137,12 +143,15 @@
               });
               reviews = cloudReviews;
             }
+            reviewsLoaded = true;
+          } else {
+            console.error('[DB] Nelze načíst recenze ze Supabase:', resR.status, await resR.text());
           }
 
-          isCloudActive = true;
+          isCloudActive = membersLoaded && reviewsLoaded;
           saveLocalState();
           notifyChange();
-          return true;
+          return isCloudActive;
         } catch (err) {
           console.warn('[DB] Supabase není dostupná, používám lokální data:', err);
           isCloudActive = false;
@@ -216,7 +225,7 @@
         try {
           const baseUrl = getBaseUrl();
           const headers = getHeaders();
-          await fetch(baseUrl + '/rest/v1/members', {
+          await fetch(baseUrl + '/rest/v1/members?on_conflict=id', {
             method: 'POST',
             headers: { ...headers, 'Prefer': 'resolution=merge-duplicates' },
             body: JSON.stringify([newMember])
@@ -231,7 +240,7 @@
     },
 
     // Uložení recenze podniku pro vybranou osobu
-    async saveReview(venueId, authorId, data) {
+    async saveReview(venueId, authorId, data, skipNotify = false) {
       if (!venueId || !authorId) return;
       const vId = String(venueId).trim().slice(0, 100);
       const aId = String(authorId).trim().slice(0, 50);
@@ -261,7 +270,7 @@
         try {
           const baseUrl = getBaseUrl();
           const headers = getHeaders();
-          await fetch(baseUrl + '/rest/v1/reviews', {
+          const res = await fetch(baseUrl + '/rest/v1/reviews?on_conflict=venue_id,author_id', {
             method: 'POST',
             headers: { ...headers, 'Prefer': 'resolution=merge-duplicates' },
             body: JSON.stringify([{
@@ -274,12 +283,17 @@
               updated_at: new Date().toISOString()
             }])
           });
+          if (!res.ok) {
+            console.error('[DB] Chyba při odesílání do Supabase:', res.status, await res.text());
+          }
         } catch (e) {
           console.error('[DB] Chyba při odesílání do Supabase:', e);
         }
       }
 
-      notifyChange();
+      if (!skipNotify) {
+        notifyChange();
+      }
     },
 
     // Smazání recenze podniku pro danou osobu
