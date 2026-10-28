@@ -5,7 +5,8 @@
   "description": "Interaktivní mapa a záznamník navštívených podniků ve food courtu Forum Nová Karolina v Ostravě.",
   "scripts": {
     "start": "python -m http.server 8777",
-    "build": "npm run build:css && npm run build:data",
+    "build": "npm run build:css",
+    "build:all": "npm run build:css && npm run build:data",
     "build:css": "tailwindcss -i tailwind.src.css -o tailwind.css --minify",
     "build:data": "node tools/build-plan.js && node tools/build-surround.js && node tools/build-extra.js && node tools/build-organica-logos.js",
     "fetch:osm": "node tools/fetch-osm.js"
