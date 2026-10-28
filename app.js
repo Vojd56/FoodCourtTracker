@@ -1511,7 +1511,7 @@ function renderMemberNavTabs() {
 }
 
 // Události v dialogu Data
-document.addEventListener('click', e => {
+document.addEventListener('click', async e => {
   const t = e.target.closest('#mExport,#mImport,#mClear,#btnReset,#mDbSettings,#mAddMemberBtn');
   if (!t) return;
 
@@ -1601,11 +1601,13 @@ document.addEventListener('click', e => {
   if (t.id === 'mClear' || t.id === 'btnReset') {
     if (!confirm('Opravdu chcete vymazat všechny zaznamenané recenze a návštěvy?')) return;
     localStorage.removeItem('fnk_reviews_v2');
-    if (window.DB) window.DB.init();
+    if (window.DB) {
+      await window.DB.resetDatabase(false);
+    }
     ui.sel = null;
     renderAll();
     closeModal();
-    toast('Vše vymazáno');
+    toast('Všechny recenze byly vymazány');
   }
 });
 

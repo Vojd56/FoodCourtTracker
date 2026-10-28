@@ -305,6 +305,38 @@
       }
     },
 
+    // Kompletní reset databáze (lokálně i v cloudu)
+    async resetDatabase(includeMembers = false) {
+      reviews = {};
+      if (includeMembers) {
+        members = [...DEFAULT_MEMBERS];
+        activeAuthorId = 'vojta';
+      }
+      saveLocalState();
+
+      if (isCloudActive && this.isConfigured()) {
+        try {
+          const baseUrl = getBaseUrl();
+          const headers = getHeaders();
+          await fetch(baseUrl + '/rest/v1/reviews?id=not.is.null', {
+            method: 'DELETE',
+            headers
+          });
+
+          if (includeMembers) {
+            await fetch(baseUrl + '/rest/v1/members?id=not.in.(vojta,peta,adel)', {
+              method: 'DELETE',
+              headers
+            });
+          }
+        } catch (e) {
+          console.error('[DB] Chyba při resetování cloudu:', e);
+        }
+      }
+
+      notifyChange();
+    },
+
     // Získání recenze konkrétního člověka
     getReview(venueId, authorId) {
       return (reviews[venueId] && reviews[venueId][authorId]) || null;
