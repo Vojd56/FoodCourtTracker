@@ -8,11 +8,9 @@
 (() => {
   'use strict';
 
-  // Výchozí konfigurace (lze vyplnit natvrdo nebo nechat prázdné a zadat v UI)
+  // Výchozí konfigurace (propojeno s vaší Supabase PostgreSQL databází)
   const DEFAULT_CONFIG = {
-    // Příklad: 'https://xyzcompany.supabase.co'
-    supabaseUrl: '',
-    // Příklad: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...'
+    supabaseUrl: 'https://ludwxqvhdexkagwmzgwt.supabase.co',
     supabaseAnonKey: ''
   };
 

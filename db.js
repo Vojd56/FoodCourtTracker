@@ -1,9 +1,10 @@
 /* ============================================================
-   Food Court Tracker — Databázová vrstva bez přihlašování (db.js)
-   Podporuje:
-   - Výběr osoby: Vojta, Peťa, Adél + přidání nového jména a loga
-   - Ukládání recenzí pro jednotlivé osoby do Supabase (Vercel) / localStorage
-   - Statistiky a porovnávání návštěv mezi lidmi
+   Food Court Tracker — Databázová vrstva (db.js)
+   Přímo propojeno se Supabase PostgreSQL (PostgREST REST API):
+   - Žádné hesla ani přihlašování
+   - Výběr osoby: Vojta, Peťa, Adél + možnost přidání nového jména a loga
+   - Každý má svůj vlastní záznam, hodnocení i datum
+   - Automatická synchronizace do cloudu na Vercelu i lokální mezipaměť
    ============================================================ */
 (() => {
   'use strict';
@@ -15,54 +16,10 @@
     { id: 'adel',  name: 'Adél',  color: '#9333ea', logo: '✨' }
   ];
 
-  // Výchozí vzorové návštěvy pro okamžitý přehled v aplikaci
-  const DEFAULT_REVIEWS = {
-    'popeyes': {
-      'vojta': { visited: true, rating: 5, note: 'Parádně křupavé a šťavnaté cajun kuře, nejlepší v Ostravě!', date: '2026-02-14' },
-      'peta': { visited: true, rating: 4, note: 'Velká porce, hranolky super, ale trochu pálivější.', date: '2026-02-18' }
-    },
-    'coloseum': {
-      'vojta': { visited: true, rating: 4, note: 'Dobrá pizza z pece a rychlá obsluha.', date: '2026-01-20' },
-      'adel': { visited: true, rating: 5, note: 'Skvělé těstoviny a příjemné posezení.', date: '2026-02-05' }
-    },
-    'wafwaf': {
-      'peta': { visited: true, rating: 5, note: 'Vafle s Nutellou a jahodami je naprosto geniální!', date: '2026-02-15' },
-      'adel': { visited: true, rating: 5, note: 'Krásné prostředí a výborné lívance.', date: '2026-02-11' }
-    },
-    'bageterie': {
-      'vojta': { visited: true, rating: 5, note: 'Bruselská bageta a patatas s tatarkou.', date: '2026-02-01' },
-      'peta': { visited: true, rating: 4, note: 'Rychlé a čerstvé jídlo na oběd.', date: '2026-01-29' },
-      'adel': { visited: true, rating: 4, note: 'Ledový čaj a lososová bageta.', date: '2026-02-10' }
-    },
-    'cokafe': {
-      'vojta': { visited: true, rating: 5, note: 'Špičková výběrová káva v Organice.', date: '2026-02-26' },
-      'adel': { visited: true, rating: 5, note: 'Ovesné cappuccino a kardamomový šnek!', date: '2026-02-20' }
-    },
-    'burgerking': {
-      'vojta': { visited: true, rating: 4, note: 'Double Whopper grilovaný na ohni.', date: '2026-01-28' },
-      'peta': { visited: true, rating: 5, note: 'Cibulové kroužky a burger bez chyby.', date: '2026-02-21' }
-    },
-    'ugosalaterie': {
-      'adel': { visited: true, rating: 5, note: 'Můj nejoblíbenější lehký oběd, čerstvé saláty.', date: '2026-02-12' },
-      'peta': { visited: true, rating: 4, note: 'Dýňová polévka byla výborná.', date: '2026-01-15' }
-    },
-    'tuktuk': {
-      'vojta': { visited: true, rating: 4, note: 'Pad Thai s krevetami, poctivá porce.', date: '2026-01-15' },
-      'peta': { visited: true, rating: 5, note: 'Červené kari je skvěle dochucené.', date: '2026-02-17' }
-    },
-    'loscapolitos': {
-      'vojta': { visited: true, rating: 5, note: 'Burrito s trhaným hovězím a pálivou salsou.', date: '2026-02-22' }
-    },
-    'starbucks': {
-      'adel': { visited: true, rating: 4, note: 'Karamelové frappuccino u vchodu.', date: '2026-02-04' }
-    }
-  };
-
   const MEMBERS_KEY = 'fnk_members_v2';
   const REVIEWS_KEY = 'fnk_reviews_v2';
   const ACTIVE_AUTHOR_KEY = 'fnk_active_author_v2';
 
-  let supabaseClient = null;
   let isCloudActive = false;
   let members = [];
   let reviews = {}; // { [venueId]: { [authorId]: { visited, rating, note, date } } }
@@ -70,6 +27,20 @@
   let listeners = [];
 
   const notifyChange = () => listeners.forEach(fn => { try { fn(); } catch (e) { console.error(e); } });
+
+  function getHeaders() {
+    const cfg = window.APP_CONFIG || {};
+    return {
+      'apikey': cfg.supabaseAnonKey,
+      'Authorization': 'Bearer ' + cfg.supabaseAnonKey,
+      'Content-Type': 'application/json'
+    };
+  }
+
+  function getBaseUrl() {
+    const cfg = window.APP_CONFIG || {};
+    return (cfg.supabaseUrl || '').replace(/\/+$/, '');
+  }
 
   function loadLocalState() {
     try {
@@ -81,9 +52,9 @@
 
     try {
       const storedR = localStorage.getItem(REVIEWS_KEY);
-      reviews = storedR ? JSON.parse(storedR) : JSON.parse(JSON.stringify(DEFAULT_REVIEWS));
+      reviews = storedR ? JSON.parse(storedR) : {};
     } catch {
-      reviews = JSON.parse(JSON.stringify(DEFAULT_REVIEWS));
+      reviews = {};
     }
 
     try {
@@ -118,43 +89,42 @@
     async init() {
       loadLocalState();
 
-      if (this.isConfigured() && window.supabase && typeof window.supabase.createClient === 'function') {
+      if (this.isConfigured()) {
         try {
-          const cfg = window.APP_CONFIG;
-          supabaseClient = window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey);
+          const baseUrl = getBaseUrl();
+          const headers = getHeaders();
 
-          // 1. Načteme členy z cloudu
-          const { data: dbMembers, error: memErr } = await supabaseClient
-            .from('members')
-            .select('id, name, color, logo');
-
-          if (!memErr && dbMembers && dbMembers.length) {
-            // Sloučíme s výchozími
-            const existingIds = new Set(dbMembers.map(m => m.id));
-            const mergedMembers = [...dbMembers];
-            DEFAULT_MEMBERS.forEach(def => {
-              if (!existingIds.has(def.id)) mergedMembers.push(def);
-            });
-            members = mergedMembers;
+          // 1. Načteme členy ze Supabase
+          const resM = await fetch(baseUrl + '/rest/v1/members?select=*', { headers });
+          if (resM.ok) {
+            const dbMembers = await resM.json();
+            if (Array.isArray(dbMembers) && dbMembers.length) {
+              const existingIds = new Set(dbMembers.map(m => m.id));
+              const mergedMembers = [...dbMembers];
+              DEFAULT_MEMBERS.forEach(def => {
+                if (!existingIds.has(def.id)) mergedMembers.push(def);
+              });
+              members = mergedMembers;
+            }
           }
 
-          // 2. Načteme recenze z cloudu
-          const { data: dbReviews, error: revErr } = await supabaseClient
-            .from('reviews')
-            .select('venue_id, author_id, visited, rating, note, visit_date');
-
-          if (!revErr && dbReviews) {
-            const cloudReviews = {};
-            dbReviews.forEach(r => {
-              if (!cloudReviews[r.venue_id]) cloudReviews[r.venue_id] = {};
-              cloudReviews[r.venue_id][r.author_id] = {
-                visited: Boolean(r.visited),
-                rating: Number(r.rating || 0),
-                note: String(r.note || ''),
-                date: r.visit_date || null
-              };
-            });
-            reviews = cloudReviews;
+          // 2. Načteme recenze ze Supabase
+          const resR = await fetch(baseUrl + '/rest/v1/reviews?select=*', { headers });
+          if (resR.ok) {
+            const dbReviews = await resR.json();
+            if (Array.isArray(dbReviews)) {
+              const cloudReviews = {};
+              dbReviews.forEach(r => {
+                if (!cloudReviews[r.venue_id]) cloudReviews[r.venue_id] = {};
+                cloudReviews[r.venue_id][r.author_id] = {
+                  visited: Boolean(r.visited),
+                  rating: Number(r.rating || 0),
+                  note: String(r.note || ''),
+                  date: r.visit_date || null
+                };
+              });
+              reviews = cloudReviews;
+            }
           }
 
           isCloudActive = true;
@@ -200,7 +170,7 @@
       }
     },
 
-    // Přidání nového jména a loga/avatara
+    // Přidání nového jména a loga/symbolu
     async addMember(name, color = '#3b8559', logo = '🍔') {
       name = (name || '').trim();
       if (!name) throw new Error('Zadejte jméno osoby.');
@@ -221,9 +191,15 @@
       activeAuthorId = newMember.id;
       saveLocalState();
 
-      if (isCloudActive && supabaseClient) {
+      if (isCloudActive && this.isConfigured()) {
         try {
-          await supabaseClient.from('members').upsert(newMember);
+          const baseUrl = getBaseUrl();
+          const headers = getHeaders();
+          await fetch(baseUrl + '/rest/v1/members', {
+            method: 'POST',
+            headers: { ...headers, 'Prefer': 'resolution=merge-duplicates' },
+            body: JSON.stringify([newMember])
+          });
         } catch (e) {
           console.warn('[DB] Nepodařilo se uložit člena do cloudu:', e);
         }
@@ -247,19 +223,25 @@
       reviews[venueId][authorId] = rec;
       saveLocalState();
 
-      if (isCloudActive && supabaseClient) {
+      if (isCloudActive && this.isConfigured()) {
         try {
-          await supabaseClient.from('reviews').upsert({
-            venue_id: venueId,
-            author_id: authorId,
-            visited: rec.visited,
-            rating: rec.rating,
-            note: rec.note,
-            visit_date: rec.date,
-            updated_at: new Date().toISOString()
-          }, { onConflict: 'venue_id, author_id' });
+          const baseUrl = getBaseUrl();
+          const headers = getHeaders();
+          await fetch(baseUrl + '/rest/v1/reviews', {
+            method: 'POST',
+            headers: { ...headers, 'Prefer': 'resolution=merge-duplicates' },
+            body: JSON.stringify([{
+              venue_id: venueId,
+              author_id: authorId,
+              visited: rec.visited,
+              rating: rec.rating,
+              note: rec.note,
+              visit_date: rec.date,
+              updated_at: new Date().toISOString()
+            }])
+          });
         } catch (e) {
-          console.error('[DB] Chyba při ukládání recenze do Supabase:', e);
+          console.error('[DB] Chyba při odesílání do Supabase:', e);
         }
       }
 
@@ -272,12 +254,14 @@
         delete reviews[venueId][authorId];
         saveLocalState();
 
-        if (isCloudActive && supabaseClient) {
+        if (isCloudActive && this.isConfigured()) {
           try {
-            await supabaseClient.from('reviews')
-              .delete()
-              .eq('venue_id', venueId)
-              .eq('author_id', authorId);
+            const baseUrl = getBaseUrl();
+            const headers = getHeaders();
+            await fetch(baseUrl + `/rest/v1/reviews?venue_id=eq.${encodeURIComponent(venueId)}&author_id=eq.${encodeURIComponent(authorId)}`, {
+              method: 'DELETE',
+              headers
+            });
           } catch (e) {
             console.error('[DB] Chyba při mazání recenze:', e);
           }
@@ -334,7 +318,6 @@
     // Zjistit, zda daný člověk navštívil podnik
     isVisitedBy(venueId, authorId) {
       if (!authorId || authorId === 'all') {
-        // Alespoň někdo navštívil
         const vr = reviews[venueId];
         return Boolean(vr && Object.values(vr).some(r => r.visited));
       }
