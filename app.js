@@ -353,7 +353,8 @@ wrap.addEventListener('pointerup', endDrag);
 wrap.addEventListener('pointercancel', endDrag);
 
 wrap.addEventListener('pointerup', e => {
-  if (moved > 6) return;
+  const tapThreshold = e.pointerType === 'touch' ? 18 : 6;
+  if (moved > tapThreshold) return;
   const t = document.elementFromPoint(e.clientX, e.clientY);
   if (!t || !t.closest('#map')) return;
   const info = hitInfo(t);
@@ -761,7 +762,7 @@ vp.addEventListener('pointerout', e => {
   if (to && to.closest && to.closest(HIT) === hoverUnit) return;
   hoverUnit = null; hideTip();
 });
-vp.addEventListener('pointermove', e => { if (hoverUnit) moveTip(e); });
+vp.addEventListener('pointermove', e => { if (e.pointerType === 'mouse' && hoverUnit) moveTip(e); });
 
 /* ============================================================
    FILTROVÁNÍ & SYNCHRONIZACE MAPY
@@ -951,7 +952,13 @@ function select(id, focus) {
 
 function renderDetail(force = false) {
   const p = $('#detail');
-  if (!ui.sel) { p.classList.add('hidden'); p.classList.remove('flex'); return; }
+  const dScrim = $('#detailScrim');
+  if (!ui.sel) {
+    p.classList.add('hidden');
+    p.classList.remove('flex');
+    if (dScrim) dScrim.classList.add('hidden');
+    return;
+  }
 
   // Pokud uživatel zrovna píše v poli poznámky nebo data a není vynuceno překreslení,
   // nepřekreslujeme DOM, aby neztratil fokus a mohl nepřetržitě psát!
@@ -983,16 +990,20 @@ function renderDetail(force = false) {
 
   p.classList.remove('hidden');
   p.classList.add('flex');
+  if (dScrim && innerWidth < 1024) dScrim.classList.remove('hidden');
   if (innerWidth < 1024) closeSidebar();
 
   p.innerHTML = `
-    <div class="px-5 pt-5 pb-4 border-b border-line flex items-start gap-3">
-      <div class="logo-box w-14 h-14 p-2">${logoMarkup(v)}</div>
+    <div class="px-4 py-3 sm:px-5 sm:pt-5 sm:pb-4 border-b border-line flex items-center sm:items-start gap-2.5 sm:gap-3">
+      <button id="dCloseMobile" class="sm:hidden btn-icon shrink-0 mr-0.5 border-transparent" aria-label="Zpět na mapu">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>
+      </button>
+      <div class="logo-box w-11 h-11 sm:w-14 sm:h-14 p-1.5 shrink-0">${logoMarkup(v)}</div>
       <div class="min-w-0 flex-1">
-        <h2 class="d-title">${esc(v.name)}</h2>
-        <p class="text-xs text-ink2 mt-1">${esc(c.label)} · ${esc(f.name)}</p>
+        <h2 class="d-title text-base sm:text-xl font-bold truncate">${esc(v.name)}</h2>
+        <p class="text-xs text-ink2 mt-0.5 truncate">${esc(c.label)} · ${esc(f.name)}</p>
       </div>
-      <button id="dClose" class="btn-icon -mt-1 -mr-2 border-transparent" aria-label="Zavřít">
+      <button id="dClose" class="hidden sm:inline-flex btn-icon -mt-1 -mr-2 border-transparent" aria-label="Zavřít">
         <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.6" viewBox="0 0 24 24"><path stroke-linecap="square" d="M6 6l12 12M18 6L6 18"/></svg>
       </button>
     </div>
@@ -1096,8 +1107,21 @@ function renderDetail(force = false) {
       <button id="dFocus" class="btn-ghost">Zaměřit na mapě</button>
     </div>`;
 
-  $('#dClose').onclick = () => select(null);
-  $('#dFocus').onclick = () => focusOn(v, 5);
+  const btnClose = $('#dClose');
+  if (btnClose) btnClose.onclick = () => select(null);
+  const btnCloseMob = $('#dCloseMobile');
+  if (btnCloseMob) btnCloseMob.onclick = () => select(null);
+
+  const btnFocus = $('#dFocus');
+  if (btnFocus) {
+    btnFocus.onclick = () => {
+      if (innerWidth < 1024) {
+        // Na mobilu po zaměření zavřeme panel, aby byla mapa vidět
+        select(null);
+      }
+      focusOn(v, 5);
+    };
+  }
 
   const btnAddInline = $('#btnAddNewMemberInline');
   if (btnAddInline) btnAddInline.onclick = () => openAddMemberModal();
@@ -1483,23 +1507,45 @@ function openDbSettingsModal() {
 }
 
 /* ============================================================
-   LIŠTA VÝBĚRU OSOB (HLAVIČKA)
+   LIŠTA VÝBĚRU OSOB (HLAVIČKA + MOBILNÍ LIŠTA)
    ============================================================ */
 function renderMemberNavTabs() {
-  const container = $('#memberNavTabs');
-  if (!container || !window.DB) return;
+  if (!window.DB) return;
   const members = window.DB.getMembers();
+  const container = $('#memberNavTabs');
+  const mobBar = $('#mobileMemberBar');
 
-  container.innerHTML = members.map(m => {
-    const isAct = ui.viewMemberId === m.id;
-    return `
-      <button class="view-btn ${isAct ? 'active' : ''}" data-member="${esc(m.id)}" style="${isAct ? 'background-color:' + esc(m.color) + '; color:#fff;' : ''}">
-        <span class="mr-1">${esc(m.logo)}</span>
-        <span>${esc(m.name)}</span>
-      </button>`;
-  }).join('');
+  if (container) {
+    container.innerHTML = members.map(m => {
+      const isAct = ui.viewMemberId === m.id;
+      return `
+        <button class="view-btn ${isAct ? 'active' : ''}" data-member="${esc(m.id)}" style="${isAct ? 'background-color:' + esc(m.color) + '; color:#fff;' : ''}">
+          <span class="mr-1">${esc(m.logo)}</span>
+          <span>${esc(m.name)}</span>
+        </button>`;
+    }).join('');
+  }
 
-  $$('#viewSelector [data-member]').forEach(b => {
+  if (mobBar) {
+    const isAll = ui.viewMemberId === 'all';
+    mobBar.innerHTML = `
+      <button class="view-btn ${isAll ? 'active' : ''}" data-member="all">Všichni</button>
+      ${members.map(m => {
+        const isAct = ui.viewMemberId === m.id;
+        const colorStyle = isAct ? `background-color:${esc(m.color)}; color:#fff;` : '';
+        return `
+          <button class="view-btn ${isAct ? 'active' : ''}" data-member="${esc(m.id)}" style="${colorStyle}">
+            <span class="mr-1">${esc(m.logo)}</span>
+            <span>${esc(m.name)}</span>
+          </button>`;
+      }).join('')}
+      <button id="btnMobileAddMember" class="view-btn text-ink3 hover:text-ink font-bold shrink-0" title="Přidat další osobu">+ Nový</button>
+    `;
+    const btnMobAdd = $('#btnMobileAddMember');
+    if (btnMobAdd) btnMobAdd.onclick = () => openAddMemberModal();
+  }
+
+  $$('#viewSelector [data-member], #mobileMemberBar [data-member]').forEach(b => {
     b.onclick = () => {
       const mId = b.dataset.member;
       ui.viewMemberId = mId;
@@ -1507,7 +1553,7 @@ function renderMemberNavTabs() {
         setSavedAuthorId(mId);
       }
       renderMemberNavTabs();
-      renderAll();
+      renderAll(true);
 
       const inspectBanner = $('#inspectBanner');
       const inspectText = $('#inspectText');
@@ -1652,6 +1698,15 @@ const openSidebar  = () => { $('#sidebar').classList.remove('-translate-x-full')
 const closeSidebar = () => { $('#sidebar').classList.add('-translate-x-full'); $('#scrim').classList.add('hidden'); };
 $('#btnSidebar').onclick = () => $('#sidebar').classList.contains('-translate-x-full') ? openSidebar() : closeSidebar();
 $('#scrim').onclick = closeSidebar;
+
+const btnCloseSb = $('#btnCloseSidebar');
+if (btnCloseSb) btnCloseSb.onclick = closeSidebar;
+
+const btnMobList = $('#btnMobileList');
+if (btnMobList) btnMobList.onclick = openSidebar;
+
+const dScrim = $('#detailScrim');
+if (dScrim) dScrim.onclick = () => select(null);
 
 function renderAll(force = false) {
   $$('.flt').forEach(b => b.classList.toggle('on', b.dataset.filter === ui.filter));

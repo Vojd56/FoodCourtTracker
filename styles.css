@@ -125,8 +125,13 @@
 .status.is-done { color: var(--yes); }
 .status.is-done i { background: var(--yes); }
 
-.star { font-size: 1.5rem; line-height: 1; color: var(--line-2); }
+.star {
+  font-size: 1.85rem; line-height: 1; color: var(--line-2);
+  padding: .35rem .45rem; touch-action: manipulation;
+  cursor: pointer; transition: transform .1s, color .12s;
+}
 .star:hover, .star.on { color: #c98a1e; }
+.star:active { transform: scale(1.25); }
 
 /* ---------- Mapa ---------- */
 #viewport { transform-origin: 0 0; --fs: 11px; --fs-big: 26px; --fs-ctx: 11px; --fs-ctx-big: 15px; --sw: 1; }
@@ -262,10 +267,11 @@
 
 /* Výběr osoby (Vojta, Peťa, Adél) v detailu */
 .author-pill {
-  display: inline-flex; align-items: center; gap: .375rem;
-  padding: .3125rem .625rem; border: 1px solid var(--line-2);
-  background: #fff; font-size: .8125rem; font-weight: 500;
+  display: inline-flex; align-items: center; gap: .5rem;
+  padding: .45rem .85rem; border: 1px solid var(--line-2);
+  background: #fff; font-size: .875rem; font-weight: 500;
   color: var(--ink); cursor: pointer; transition: all .12s;
+  min-height: 42px; touch-action: manipulation;
 }
 .author-pill:hover { border-color: var(--ink); }
 .author-pill.active {
@@ -298,6 +304,53 @@
 
 .animate-slideup {
   animation: slideup .18s ease-out forwards;
+}
+
+@keyframes slideleft {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+
+.animate-slideleft {
+  animation: slideleft .2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Optimalizace pro dotykové obrazovky a mobilní zařízení */
+@media (max-width: 640px) {
+  .field, input[type="text"], input[type="search"], input[type="date"], textarea {
+    font-size: 16px !important; /* Zabraňuje nechtěnému přiblížení v iOS Safari */
+  }
+
+  #floorBar {
+    top: .5rem;
+    max-width: calc(100% - 1rem);
+  }
+
+  .floor-tab {
+    padding: .5rem .75rem;
+    font-size: .8125rem;
+    min-height: 40px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    touch-action: manipulation;
+  }
+
+  .view-btn {
+    padding: .35rem .75rem;
+    font-size: .8125rem;
+    min-height: 36px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    touch-action: manipulation;
+  }
+
+  .zbtn {
+    width: 2.5rem;
+    height: 2.5rem;
+    font-size: 1.125rem;
+  }
 }
 
 
