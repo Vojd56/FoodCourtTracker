@@ -166,8 +166,18 @@ const cat = c => CATS[c] || { label: c };
 const KIND_FILL = { shop: '#e6e1d8', service: '#ece8e1', vert: '#d9d2c6', area: '#eae6df' };
 const FC_FILL = '#efe0c6';
 
-/* Stav podniku: červená = zatím ne, zelená = navštíveno */
-const NOPE = '#c0453a', YES = '#3b8559';
+/* Stav podniku: červená = zatím ne, zelená = navštíveno
+   (v pohledu „Všichni“: oranžová = byl tu jen někdo z party, zelená = byli všichni) */
+const NOPE = '#c0453a', YES = '#3b8559', SOME = '#d4892a';
+
+/* Kdo z party podnik navštívil a kdo ne */
+function venueParty(venueId) {
+  const members = window.DB ? window.DB.getMembers() : [];
+  const visited = members.filter(m => window.DB.isVisitedBy(venueId, m.id));
+  const missing = members.filter(m => !window.DB.isVisitedBy(venueId, m.id));
+  const state = !visited.length ? 'none' : (missing.length ? 'some' : 'all');
+  return { members, visited, missing, state, color: state === 'all' ? YES : state === 'some' ? SOME : NOPE };
+}
 
 const logoMarkup = (v, cls = '') => {
   const url = typeof logoUrl === 'function' ? logoUrl(v.id) : null;
@@ -592,8 +602,11 @@ function drawLabel(u, parent, labels, marks) {
     el('circle', { r: 7.4, cx: hw - 1, cy: -hh + 1, fill: YES, stroke: '#fff', 'stroke-width': 1.8 }, ck);
     el('path', { d: `M${hw - 4.4} ${-hh + 0.8} L${hw - 1.9} ${-hh + 3.4} L${hw + 2.6} ${-hh - 2.2}`, fill: 'none', stroke: '#fff', 'stroke-width': 2.2, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }, ck);
 
+    // Tečky členů party pod logem (pohled „Všichni“): plná = byl/a, prázdná = nebyl/a
+    const dots = el('g', { class: 'm-dots', display: 'none' }, g);
+
     const maxS = 1;
-    marks.push({ node: mk, wrap: g, bg, ck, v, maxS, rotate, last: -1 });
+    marks.push({ node: mk, wrap: g, bg, ck, dots, dotY: rotate ? hw : hh, dotW: rotate ? bh : bw, v, maxS, rotate, last: -1 });
     UNIT_INFO.set(mk, { u, v });
     base = hh + 13;
   }
@@ -656,13 +669,23 @@ function showTip(e, u, v) {
       const rev = window.DB.getReview(v.id, currentMember.id);
       statusText = `<span class="w-2 h-2 shrink-0 ${visStatus ? 'bg-yes' : 'bg-no'}"></span>${esc(v.name)} ` +
         `<span class="text-[10px] opacity-75">(${esc(currentMember.logo)} ${esc(currentMember.name)}: ${visStatus ? 'byl/a' + (rev && rev.rating ? ' ' + rev.rating + '★' : '') : 'nebyl/a'})</span>`;
-    } else {
-      visStatus = window.DB ? window.DB.isVisitedBy(v.id, 'all') : false;
-      statusText = `<span class="w-2 h-2 shrink-0 ${visStatus ? 'bg-yes' : 'bg-no'}"></span>${esc(v.name)}`;
+    } else if (window.DB) {
+      const party = venueParty(v.id);
+      statusText = `<span class="w-2 h-2 shrink-0" style="background:${party.color}"></span>${esc(v.name)} ` +
+        `<span class="text-[10px] opacity-75">(${party.visited.length}/${party.members.length} z party)</span>`;
     }
 
     let visitorsLine = '';
-    if (st && st.visitors.length > 0) {
+    if (!currentMember && window.DB) {
+      const party = venueParty(v.id);
+      const who = list => list.map(m => `${esc(m.logo)} <b>${esc(m.name)}</b>`).join(', ');
+      visitorsLine =
+        (party.visited.length ? `<div class="text-[11px] text-[#9fd8a6] mt-1">✓ Byli: ${party.visited.map(m => {
+          const r = window.DB.getReview(v.id, m.id);
+          return `${esc(m.logo)} <b>${esc(m.name)}</b>${r && r.rating ? ' (' + r.rating + '★)' : ''}`;
+        }).join(', ')}</div>` : '') +
+        (party.missing.length ? `<div class="text-[11px] text-[#f2a49b] mt-0.5">✗ Nebyli: ${who(party.missing)}</div>` : '');
+    } else if (st && st.visitors.length > 0) {
       visitorsLine = `<div class="text-[11px] text-[#f4d28d] mt-1 flex items-center gap-1.5 flex-wrap">` +
         `<span>Byli zde:</span> ` +
         st.visitors.map(vis => `<span title="${esc(vis.name)}: ${vis.rating ? vis.rating + '★' : 'navštíveno'}">${esc(vis.logo)} <b>${esc(vis.name)}</b>${vis.rating ? ' (' + vis.rating + '★)' : ''}</span>`).join(' · ') +
@@ -732,7 +755,6 @@ const filterActive = () => ui.filter !== 'all' || ui.cats.size > 0 || !!ui.q;
 function refreshMap() {
   const active = filterActive();
   const activeMember = ui.viewMemberId !== 'all' && window.DB ? window.DB.getMember(ui.viewMemberId) : null;
-  const allMembersCount = window.DB ? window.DB.getMembers().length : 3;
 
   for (const t of trackedNodes) {
     let vis = false;
@@ -741,14 +763,10 @@ function refreshMap() {
     if (activeMember) {
       vis = window.DB ? window.DB.isVisitedBy(t.v.id, activeMember.id) : false;
       fillColor = vis ? (activeMember.color || YES) : NOPE;
-    } else {
-      const st = window.DB ? window.DB.getVenueStats(t.v.id) : null;
-      vis = Boolean(st && st.visitorCount > 0);
-      if (st && st.visitorCount >= allMembersCount && allMembersCount > 0) {
-        fillColor = '#2563eb'; // Všichni navštívili
-      } else {
-        fillColor = vis ? YES : NOPE;
-      }
+    } else if (window.DB) {
+      const party = venueParty(t.v.id);
+      vis = party.state !== 'none';
+      fillColor = party.color;
     }
 
     const ok = !active || matches(t.v);
@@ -770,21 +788,21 @@ function refreshMap() {
     if (activeMember) {
       vis = window.DB ? window.DB.isVisitedBy(m.v.id, activeMember.id) : false;
       strokeColor = vis ? (activeMember.color || YES) : NOPE;
-    } else {
-      const st = window.DB ? window.DB.getVenueStats(m.v.id) : null;
-      vis = Boolean(st && st.visitorCount > 0);
-      if (st && st.visitorCount >= allMembersCount && allMembersCount > 0) {
-        strokeColor = '#2563eb';
-      } else {
-        strokeColor = vis ? YES : NOPE;
-      }
+    } else if (window.DB) {
+      const party = venueParty(m.v.id);
+      vis = party.state !== 'none';
+      strokeColor = party.color;
+      drawPartyDots(m, party);
     }
+    if (activeMember) drawPartyDots(m, null);
 
+    // Fajfka v rohu: u konkrétní osoby = byl/a, ve „Všichni“ = byli úplně všichni
+    const showCk = activeMember ? vis : strokeColor === YES;
     const ok = !active || matches(m.v);
-    if (m.vis !== vis || m.lastStroke !== strokeColor) {
+    if (m.vis !== showCk || m.lastStroke !== strokeColor) {
       m.bg.setAttribute('stroke', strokeColor);
-      m.ck.setAttribute('display', vis ? '' : 'none');
-      m.vis = vis;
+      m.ck.setAttribute('display', showCk ? '' : 'none');
+      m.vis = showCk;
       m.lastStroke = strokeColor;
     }
     const cl = m.wrap.classList;
@@ -792,7 +810,48 @@ function refreshMap() {
     cl.toggle('sel', ui.sel === m.v.id);
     cl.toggle('force', ui.sel === m.v.id || (active && ok));
   }
+  renderLegend(activeMember);
   updateLOD(true);
+}
+
+function drawPartyDots(m, party) {
+  const sig = party ? party.members.map(x => x.id + x.color + (party.visited.includes(x) ? 1 : 0)).join('|') : '';
+  if (sig === m.dotSig) return;
+  m.dotSig = sig;
+  m.dots.replaceChildren();
+  if (!party || !party.members.length) { m.dots.setAttribute('display', 'none'); return; }
+
+  const n = party.members.length;
+  const r = Math.max(1.5, Math.min(2.6, m.dotW / (n * 3)));
+  const gap = r * 2.6;
+  const w = (n - 1) * gap;
+  const cy = m.dotY; // tečky sedí na spodní hraně loga, aby nezasahovaly do sousedních podniků
+  el('rect', { class: 'm-dots-bg', x: -w / 2 - r - 1.6, y: cy - r - 1.6, width: w + 2 * r + 3.2, height: 2 * r + 3.2, rx: r + 1.6 }, m.dots);
+  party.members.forEach((x, i) => {
+    const on = party.visited.includes(x);
+    const c = el('circle', { cx: -w / 2 + i * gap, cy, r: on ? r : r - 0.45, fill: on ? x.color : '#fff', stroke: on ? '#fff' : '#8c8478', 'stroke-width': 0.8 }, m.dots);
+    const t = el('title', {}, c);
+    t.textContent = `${x.name}: ${on ? 'byl/a' : 'nebyl/a'}`;
+  });
+  m.dots.setAttribute('display', '');
+}
+
+function renderLegend(activeMember) {
+  const lg = $('#mapLegend');
+  if (!lg) return;
+  const key = activeMember ? 'm:' + activeMember.id + activeMember.color : 'all:' + (window.DB ? window.DB.getMembers().map(x => x.id + x.color).join() : '');
+  if (lg.dataset.key === key) return;
+  lg.dataset.key = key;
+  const row = (color, text) => `<div class="flex items-center gap-2"><span class="w-3 h-3 shrink-0" style="background:${esc(color)}"></span>${text}</div>`;
+  if (activeMember) {
+    lg.innerHTML = row(activeMember.color || YES, `${esc(activeMember.name)} tu byl/a`) + row(NOPE, 'Zatím ne');
+    return;
+  }
+  const members = window.DB ? window.DB.getMembers() : [];
+  lg.innerHTML = row(YES, 'Byli všichni') + row(SOME, 'Byl tu jen někdo') + row(NOPE, 'Nikdo zatím') +
+    (members.length ? `<div class="pt-1.5 mt-1 border-t border-line flex flex-wrap gap-x-2.5 gap-y-1 max-w-[220px]">
+      ${members.map(x => `<span class="flex items-center gap-1"><span class="member-dot" style="background:${esc(x.color)}"></span>${esc(x.name)}</span>`).join('')}
+    </div><div class="text-[10px] text-ink3">Plná tečka = byl/a, prázdná = nebyl/a</div>` : '');
 }
 
 /* ============================================================
@@ -828,9 +887,16 @@ function renderList() {
       const on = isVisited(v.id);
       const st = window.DB ? window.DB.getVenueStats(v.id) : null;
       let visitorsBadges = '';
-      if (st && st.visitors.length > 0) {
-        visitorsBadges = `<div class="flex items-center gap-0.5 shrink-0" title="Navštívili: ${st.visitors.map(x => x.name).join(', ')}">` +
-          st.visitors.map(vis => `<span class="text-xs inline-block transform hover:scale-125 transition-transform" style="filter: drop-shadow(0 1px 1px rgba(0,0,0,0.1))">${esc(vis.logo)}</span>`).join('') +
+      if (window.DB && ui.viewMemberId === 'all') {
+        const party = venueParty(v.id);
+        const title = (party.visited.length ? 'Byli: ' + party.visited.map(x => x.name).join(', ') : 'Zatím nikdo') +
+          (party.missing.length && party.visited.length ? ' · Nebyli: ' + party.missing.map(x => x.name).join(', ') : '');
+        visitorsBadges = `<div class="flex items-center gap-0.5 shrink-0" title="${esc(title)}">` +
+          party.members.map(x => `<span class="party-logo ${party.visited.includes(x) ? '' : 'off'}">${esc(x.logo)}</span>`).join('') +
+          `</div>`;
+      } else if (st && st.visitors.length > 0) {
+        visitorsBadges = `<div class="flex items-center gap-0.5 shrink-0" title="Navštívili: ${esc(st.visitors.map(x => x.name).join(', '))}">` +
+          st.visitors.map(vis => `<span class="party-logo">${esc(vis.logo)}</span>`).join('') +
           `</div>`;
       }
 
@@ -1273,6 +1339,55 @@ function openAddMemberModal() {
   };
 }
 
+/* MODÁL PRO SMAZÁNÍ ČLENA (S POTVRZENÍM) */
+function openDeleteMemberModal(memberId) {
+  const m = window.DB ? window.DB.getMember(memberId) : null;
+  if (!m) return;
+  const isLast = window.DB.getMembers().length <= 1;
+  const visited = window.DB.getVisitedCount(m.id);
+  const records = window.DB.getMemberReviewCount(m.id);
+
+  openModal(`
+    ${modalHead('Smazat osobu')}
+    <div class="p-5 space-y-4 text-sm">
+      <div class="flex items-center gap-3 p-3 bg-white border border-line">
+        <span class="text-2xl">${esc(m.logo)}</span>
+        <div class="min-w-0">
+          <div class="font-semibold" style="color:${esc(m.color)}">${esc(m.name)}</div>
+          <div class="text-xs text-ink2">${visited} navštívených podniků · ${records} záznamů celkem</div>
+        </div>
+      </div>
+      ${isLast
+        ? `<p class="text-xs text-no">Posledního člena party nelze smazat. Nejdřív přidejte někoho dalšího.</p>`
+        : `<p class="text-ink2 leading-relaxed">Opravdu chcete smazat <b>${esc(m.name)}</b>? Spolu s ním/ní se ${records ? `smaže i <b>${records}</b> ${records === 1 ? 'záznam' : records < 5 ? 'záznamy' : 'záznamů'} (návštěvy, hodnocení a poznámky)` : 'nic dalšího nesmaže, zatím nemá žádné záznamy'} — na všech zařízeních. Tuto akci nelze vrátit.</p>
+           ${records ? `<p class="text-xs text-ink3">Tip: Pokud si chcete data ponechat, udělejte si nejdřív zálohu přes Data → Exportovat JSON.</p>` : ''}`}
+      <div class="grid grid-cols-2 gap-3 pt-1">
+        <button data-close class="btn-ghost">Zrušit</button>
+        ${isLast ? '' : `<button id="btnConfirmDelMember" class="btn-ghost btn-danger">Smazat ${esc(m.name)}</button>`}
+      </div>
+    </div>`);
+
+  const btnConfirm = $('#btnConfirmDelMember');
+  if (btnConfirm) btnConfirm.onclick = async () => {
+    btnConfirm.disabled = true;
+    try {
+      await window.DB.deleteMember(m.id);
+      if (ui.viewMemberId === m.id) {
+        ui.viewMemberId = 'all';
+        $('#inspectBanner').classList.add('hidden');
+      }
+      if (ui.reviewAuthorId === m.id) ui.reviewAuthorId = window.DB.getActiveAuthorId();
+      closeModal();
+      renderMemberNavTabs();
+      renderAll(true);
+      toast(`${m.logo} ${m.name} byl/a smazán/a`);
+    } catch (err) {
+      btnConfirm.disabled = false;
+      toast(err.message || 'Smazání se nepodařilo', true);
+    }
+  };
+}
+
 /* PŘEHLED NÁVŠTĚV & ŽEBŘÍČEK */
 $('#btnStats').onclick = () => {
   const allVenueIds = VENUES.map(v => v.id);
@@ -1408,6 +1523,16 @@ $('#btnMenu').onclick = () => {
 
     <div class="border-t border-line pt-3">
       <div class="text-xs font-semibold text-ink2 uppercase tracking-wider mb-2">Správa osob</div>
+      <div class="divide-y divide-line border border-line bg-white mb-2">
+        ${(window.DB ? window.DB.getMembers() : []).map(m => `
+          <div class="flex items-center gap-2 px-3 py-2">
+            <span class="member-dot" style="background:${esc(m.color)}"></span>
+            <span class="text-base leading-none">${esc(m.logo)}</span>
+            <span class="flex-1 min-w-0 truncate font-medium">${esc(m.name)}</span>
+            <span class="text-[11px] text-ink3 tabular-nums">${window.DB.getVisitedCount(m.id)} navštíveno</span>
+            <button class="text-xs text-ink3 hover:text-no underline underline-offset-2 shrink-0" data-del-member="${esc(m.id)}">Smazat</button>
+          </div>`).join('')}
+      </div>
       <button id="mAddMemberBtn" class="btn-ghost">
         + Přidat další osobu a logo
       </button>
@@ -1425,6 +1550,8 @@ $('#btnMenu').onclick = () => {
       <button id="mClear" class="btn-ghost hover:!border-no hover:!text-no">Smazat všechna data</button>
     </div>
   </div>`);
+
+  $$('#modalBox [data-del-member]').forEach(b => b.onclick = () => openDeleteMemberModal(b.dataset.delMember));
 
   const btnSync = $('#btnForceSync');
   if (btnSync) {

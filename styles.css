@@ -169,6 +169,15 @@
   paint-order: stroke; stroke: rgba(250,248,245,.92); stroke-width: calc(var(--sw) * 2.6); stroke-linejoin: round;
 }
 .lab.sel .m-bg { stroke-width: 5; }
+.m-dots { pointer-events: none; }
+.m-dots-bg { fill: rgba(255,255,255,.94); stroke: rgba(38,35,31,.18); stroke-width: .6; }
+
+.member-dot { display: inline-block; width: .625rem; height: .625rem; border-radius: 9999px; flex-shrink: 0; box-shadow: 0 0 0 1px rgba(255,255,255,.9), 0 0 0 2px rgba(38,35,31,.12); }
+.party-logo { font-size: .75rem; line-height: 1; display: inline-block; transition: transform .12s; filter: drop-shadow(0 1px 1px rgba(0,0,0,.1)); }
+.party-logo:hover { transform: scale(1.25); }
+.party-logo.off { filter: grayscale(1); opacity: .28; }
+.btn-danger { border-color: var(--no); color: var(--no); font-weight: 600; }
+.btn-danger:hover { background: var(--no); border-color: var(--no); color: var(--paper); }
 
 @media print { #sidebar, #detail, header { display: none; } }
 @media (max-width: 640px) {
@@ -202,6 +211,8 @@
   background: var(--paper); border: 1px solid var(--line-2);
   padding: 2px; gap: 2px;
 }
+/* Na mobilu je výběr osob v liště pod hlavičkou (#mobileMemberBar) */
+@media (max-width: 767px) { .view-selector { display: none; } }
 .view-btn {
   padding: .25rem .625rem; font-size: .75rem; font-weight: 500;
   color: var(--ink-2); transition: all .12s; white-space: nowrap;
@@ -218,6 +229,7 @@
   padding: .375rem 1rem; border-radius: 9999px; font-size: .8125rem;
   box-shadow: 0 4px 12px rgba(0,0,0,0.15); animation: slideup .15s ease-out;
 }
+.banner-inspect.hidden { display: none; }
 .banner-inspect button {
   background: rgba(255,255,255,0.2); padding: 2px 8px; border-radius: 9999px;
   font-size: .6875rem; font-weight: 600; text-transform: uppercase;
