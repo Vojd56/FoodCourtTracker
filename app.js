@@ -292,8 +292,9 @@ function animateTo(x, y, k, animate) {
 }
 
 /* Ukazatel (myš + dotyk) */
-let drag = null, moved = 0;
+let drag = null, moved = 0, lastPointer = 'mouse';
 wrap.addEventListener('pointerdown', e => {
+  lastPointer = e.pointerType;
   if (e.button !== 0 && e.pointerType === 'mouse') return;
   drag = { px: e.clientX, py: e.clientY, ox: view.x, oy: view.y, id: e.pointerId };
   moved = 0;
@@ -312,8 +313,10 @@ const endDrag = e => { if (drag && drag.id === e.pointerId) drag = null; };
 wrap.addEventListener('pointerup', endDrag);
 wrap.addEventListener('pointercancel', endDrag);
 
-wrap.addEventListener('pointerup', e => {
-  const tapThreshold = e.pointerType === 'touch' ? 18 : 6;
+/* Výběr podniku až na 'click', ne na 'pointerup': na dotyku by se jinak detail otevřel
+   a následný (syntetický) click by trefil zatmění #detailScrim a detail hned zavřel. */
+wrap.addEventListener('click', e => {
+  const tapThreshold = lastPointer === 'touch' ? 18 : 6;
   if (moved > tapThreshold) return;
   const t = document.elementFromPoint(e.clientX, e.clientY);
   if (!t || !t.closest('#map')) return;
@@ -1013,15 +1016,12 @@ function renderDetail(force = false) {
 
   p.innerHTML = `
     <div class="px-4 py-3 sm:px-5 sm:pt-5 sm:pb-4 border-b border-line flex items-center sm:items-start gap-2.5 sm:gap-3">
-      <button id="dCloseMobile" class="sm:hidden btn-icon shrink-0 mr-0.5 border-transparent" aria-label="Zpět na mapu">
-        <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>
-      </button>
       <div class="logo-box w-11 h-11 sm:w-14 sm:h-14 p-1.5 shrink-0">${logoMarkup(v)}</div>
       <div class="min-w-0 flex-1">
         <h2 class="d-title text-base sm:text-xl font-bold truncate">${esc(v.name)}</h2>
         <p class="text-xs text-ink2 mt-0.5 truncate">${esc(c.label)} · ${esc(f.name)}</p>
       </div>
-      <button id="dClose" class="hidden sm:inline-flex btn-icon -mt-1 -mr-2 border-transparent" aria-label="Zavřít">
+      <button id="dClose" class="btn-icon shrink-0 -mr-2 border-transparent" aria-label="Zavřít">
         <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.6" viewBox="0 0 24 24"><path stroke-linecap="square" d="M6 6l12 12M18 6L6 18"/></svg>
       </button>
     </div>
@@ -1127,8 +1127,6 @@ function renderDetail(force = false) {
 
   const btnClose = $('#dClose');
   if (btnClose) btnClose.onclick = () => select(null);
-  const btnCloseMob = $('#dCloseMobile');
-  if (btnCloseMob) btnCloseMob.onclick = () => select(null);
 
   const btnFocus = $('#dFocus');
   if (btnFocus) {
