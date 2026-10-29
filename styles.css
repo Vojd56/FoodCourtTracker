@@ -412,3 +412,8 @@
   header h1 { display: none; }
 }
 
+/* Mobilní prohlížeče: 100vh počítá i s plochou pod lištou prohlížeče, takže spodek
+   aplikace (legenda, +/−, Seznam podniků) byl schovaný. dvh = skutečně viditelná výška. */
+.h-screen { height: 100vh; height: 100dvh; }
+#mapWrap { -webkit-touch-callout: none; }
+
