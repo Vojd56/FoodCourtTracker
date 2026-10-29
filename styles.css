@@ -35,6 +35,8 @@
 .btn:hover { background: #fff; border-color: var(--ink); }
 .btn-icon { display: grid; place-items: center; width: 2rem; height: 2rem; border: 1px solid var(--line-2); }
 .btn-icon:hover { border-color: var(--ink); background: #fff; }
+/* .btn-icon (display:grid) se načítá po Tailwindu a přebíjí lg:hidden – na PC tlačítko skryj */
+@media (min-width: 1024px) { .btn-icon.lg\:hidden { display: none; } }
 
 .flt {
   padding: .25rem 0 .625rem; margin-bottom: -1px;
