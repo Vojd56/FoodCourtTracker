@@ -726,6 +726,8 @@ const hitInfo = t => {
 
 let hoverUnit = null;
 vp.addEventListener('pointerover', e => {
+  // Bublina s info je jen pro myš; na dotyku se ukazovala při podržení prstu – detail se otevírá klepnutím
+  if (e.pointerType !== 'mouse') return;
   const g = e.target.closest ? e.target.closest(HIT) : null;
   if (g === hoverUnit) return;
   hoverUnit = g;
