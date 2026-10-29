@@ -20,6 +20,8 @@
       if (stored) {
         const parsed = JSON.parse(stored);
         if (parsed && typeof parsed === 'object') {
+          // Uživatel si výslovně zvolil lokální režim
+          if (parsed.localOnly) return { supabaseUrl: '', supabaseAnonKey: '', localOnly: true };
           const u = (parsed.supabaseUrl && parsed.supabaseUrl.trim()) || DEFAULT_CONFIG.supabaseUrl;
           let k = (parsed.supabaseAnonKey && parsed.supabaseAnonKey.trim()) || DEFAULT_CONFIG.supabaseAnonKey;
           // Pokud byl v localStorage starý secret klíč nebo prázdný řetězec, použít platný anon klíč
@@ -38,6 +40,7 @@
   window.saveAppConfig = function(url, key) {
     window.APP_CONFIG.supabaseUrl = (url || '').trim();
     window.APP_CONFIG.supabaseAnonKey = (key || '').trim();
+    window.APP_CONFIG.localOnly = !window.APP_CONFIG.supabaseUrl && !window.APP_CONFIG.supabaseAnonKey;
     try {
       localStorage.setItem('fnk_supabase_config', JSON.stringify(window.APP_CONFIG));
     } catch {}

@@ -19,12 +19,20 @@
   const MEMBERS_KEY = 'fnk_members_v2';
   const REVIEWS_KEY = 'fnk_reviews_v2';
   const ACTIVE_AUTHOR_KEY = 'fnk_active_author_v2';
+  // Offline fronta: změny, které ještě nejsou potvrzené cloudem
+  const PENDING_KEY = 'fnk_pending_v2';
+  // Příznak, že lokální data už byla aspoň jednou sloučena s cloudem
+  const SYNCED_KEY = 'fnk_synced_once_v2';
 
   let isCloudActive = false;
   let members = [];
   let reviews = {}; // { [venueId]: { [authorId]: { visited, rating, note, date } } }
   let activeAuthorId = 'vojta';
   let listeners = [];
+  // pending.reviews: { "venueId|authorId": { op: 'upsert'|'delete', venueId, authorId, rec } }
+  // pending.members: { [memberId]: member }
+  let pending = { reviews: {}, members: {} };
+  let initPromise = null;
 
   const notifyChange = () => listeners.forEach(fn => { try { fn(); } catch (e) { console.error(e); } });
 
@@ -71,9 +79,126 @@
       localStorage.setItem(MEMBERS_KEY, JSON.stringify(members));
       localStorage.setItem(REVIEWS_KEY, JSON.stringify(reviews));
       localStorage.setItem(ACTIVE_AUTHOR_KEY, activeAuthorId);
+      localStorage.setItem(PENDING_KEY, JSON.stringify(pending));
     } catch (e) {
       console.warn('[DB] Nelze uložit do localStorage:', e);
     }
+  }
+
+  function loadPending() {
+    try {
+      const p = JSON.parse(localStorage.getItem(PENDING_KEY) || 'null');
+      pending = {
+        reviews: (p && p.reviews && typeof p.reviews === 'object') ? p.reviews : {},
+        members: (p && p.members && typeof p.members === 'object') ? p.members : {}
+      };
+    } catch {
+      pending = { reviews: {}, members: {} };
+    }
+  }
+
+  const pendingKey = (vId, aId) => vId + '|' + aId;
+
+  function queueReview(op, vId, aId, rec) {
+    pending.reviews[pendingKey(vId, aId)] = { op, venueId: vId, authorId: aId, rec: rec || null };
+  }
+
+  // Přenese čekající (ještě neodeslané) změny přes data načtená z cloudu,
+  // aby je pravidelná synchronizace nepřepsala.
+  function applyPending() {
+    Object.values(pending.members).forEach(m => {
+      if (!members.some(x => x.id === m.id)) members.push(m);
+    });
+    Object.values(pending.reviews).forEach(p => {
+      if (p.op === 'delete') {
+        if (reviews[p.venueId]) delete reviews[p.venueId][p.authorId];
+      } else if (p.rec) {
+        if (!reviews[p.venueId]) reviews[p.venueId] = {};
+        reviews[p.venueId][p.authorId] = p.rec;
+      }
+    });
+  }
+
+  async function sendReview(p) {
+    const baseUrl = getBaseUrl();
+    const headers = getHeaders();
+    if (p.op === 'delete') {
+      return fetch(baseUrl + `/rest/v1/reviews?venue_id=eq.${encodeURIComponent(p.venueId)}&author_id=eq.${encodeURIComponent(p.authorId)}`, {
+        method: 'DELETE',
+        headers
+      });
+    }
+    return fetch(baseUrl + '/rest/v1/reviews?on_conflict=venue_id,author_id', {
+      method: 'POST',
+      headers: { ...headers, 'Prefer': 'resolution=merge-duplicates,return=minimal' },
+      body: JSON.stringify([{
+        venue_id: p.venueId,
+        author_id: p.authorId,
+        visited: p.rec.visited,
+        rating: p.rec.rating,
+        note: p.rec.note,
+        visit_date: p.rec.date,
+        updated_at: new Date().toISOString()
+      }])
+    });
+  }
+
+  // Odešle frontu do cloudu. Úspěšně odeslané položky z fronty odstraní,
+  // neúspěšné v ní zůstanou a zkusí se při další synchronizaci.
+  async function flushPending() {
+    if (!isCloudActive || !DB.isConfigured()) return;
+    const baseUrl = getBaseUrl();
+    const headers = getHeaders();
+
+    // Nejdřív členové — recenze na ně odkazují cizím klíčem (author_id)
+    const ms = Object.values(pending.members);
+    if (ms.length) {
+      try {
+        const res = await fetch(baseUrl + '/rest/v1/members?on_conflict=id', {
+          method: 'POST',
+          headers: { ...headers, 'Prefer': 'resolution=merge-duplicates,return=minimal' },
+          body: JSON.stringify(ms.map(m => ({ id: m.id, name: m.name, color: m.color, logo: m.logo })))
+        });
+        if (res.ok) {
+          ms.forEach(m => { if (pending.members[m.id] === m) delete pending.members[m.id]; });
+        } else {
+          console.error('[DB] Nepodařilo se uložit členy do cloudu:', res.status, await res.text());
+        }
+      } catch (e) {
+        console.warn('[DB] Nepodařilo se uložit členy do cloudu:', e);
+      }
+    }
+
+    for (const [key, p] of Object.entries(pending.reviews)) {
+      if (pending.members[p.authorId]) continue; // autor ještě není v cloudu
+      try {
+        const res = await sendReview(p);
+        if (res.ok) {
+          // Mezitím mohla vzniknout novější změna stejné recenze — tu nechat ve frontě
+          if (pending.reviews[key] === p) delete pending.reviews[key];
+        } else {
+          console.error('[DB] Chyba při odesílání do Supabase:', res.status, await res.text());
+        }
+      } catch (e) {
+        console.error('[DB] Chyba při odesílání do Supabase:', e);
+        break; // síť nejede, zbytek zkusíme příště
+      }
+    }
+    saveLocalState();
+  }
+
+  // První spojení s cloudem: lokální data, která v cloudu nejsou, zařadit do fronty
+  function queueLocalOnlyData(localMembers, localReviews, cloudMemberIds, cloudReviews) {
+    localMembers.forEach(m => {
+      if (!cloudMemberIds.has(m.id)) pending.members[m.id] = m;
+    });
+    Object.entries(localReviews).forEach(([vId, byAuthor]) => {
+      Object.entries(byAuthor || {}).forEach(([aId, r]) => {
+        if (!(cloudReviews[vId] && cloudReviews[vId][aId]) && !pending.reviews[pendingKey(vId, aId)]) {
+          queueReview('upsert', vId, aId, r);
+        }
+      });
+    });
   }
 
   const DB = {
@@ -86,8 +211,20 @@
       return isCloudActive;
     },
 
-    async init() {
+    // Souběžná volání (start, focus, interval) sdílí jedno běžící načtení
+    init() {
+      if (!initPromise) {
+        initPromise = this._init().finally(() => { initPromise = null; });
+      }
+      return initPromise;
+    },
+
+    async _init() {
       loadLocalState();
+      loadPending();
+      const localMembers = [...members];
+      const localReviews = reviews;
+      let cloudMemberIds = new Set();
 
       if (this.isConfigured()) {
         try {
@@ -103,6 +240,7 @@
             const dbMembers = await resM.json();
             if (Array.isArray(dbMembers) && dbMembers.length) {
               const existingIds = new Set(dbMembers.map(m => m.id));
+              cloudMemberIds = existingIds;
               const mergedMembers = [...dbMembers];
               DEFAULT_MEMBERS.forEach(def => {
                 if (!existingIds.has(def.id)) mergedMembers.push(def);
@@ -149,16 +287,37 @@
           }
 
           isCloudActive = membersLoaded && reviewsLoaded;
+          if (isCloudActive) {
+            // Výchozí osoby, které v cloudu chybí, tam nahrát (jinak by jejich recenze padaly na cizím klíči)
+            members.forEach(m => {
+              if (cloudMemberIds.size && !cloudMemberIds.has(m.id) && !pending.members[m.id]) pending.members[m.id] = m;
+            });
+            let syncedOnce = false;
+            try { syncedOnce = localStorage.getItem(SYNCED_KEY) === '1'; } catch {}
+            if (!syncedOnce) {
+              queueLocalOnlyData(localMembers, localReviews, cloudMemberIds, reviews);
+              try { localStorage.setItem(SYNCED_KEY, '1'); } catch {}
+            }
+          } else {
+            // Cloud se načetl jen napůl — nepřepisovat lokální data
+            members = localMembers;
+            reviews = localReviews;
+          }
+          applyPending();
           saveLocalState();
+          await flushPending();
           notifyChange();
           return isCloudActive;
         } catch (err) {
           console.warn('[DB] Supabase není dostupná, používám lokální data:', err);
+          members = localMembers;
+          reviews = localReviews;
           isCloudActive = false;
         }
       }
 
       isCloudActive = false;
+      applyPending();
       notifyChange();
       return false;
     },
@@ -219,21 +378,9 @@
 
       members.push(newMember);
       activeAuthorId = newMember.id;
+      pending.members[newMember.id] = newMember;
       saveLocalState();
-
-      if (isCloudActive && this.isConfigured()) {
-        try {
-          const baseUrl = getBaseUrl();
-          const headers = getHeaders();
-          await fetch(baseUrl + '/rest/v1/members?on_conflict=id', {
-            method: 'POST',
-            headers: { ...headers, 'Prefer': 'resolution=merge-duplicates' },
-            body: JSON.stringify([newMember])
-          });
-        } catch (e) {
-          console.warn('[DB] Nepodařilo se uložit člena do cloudu:', e);
-        }
-      }
+      await flushPending();
 
       notifyChange();
       return newMember;
@@ -264,32 +411,9 @@
       };
 
       reviews[vId][aId] = rec;
+      queueReview('upsert', vId, aId, rec);
       saveLocalState();
-
-      if (isCloudActive && this.isConfigured()) {
-        try {
-          const baseUrl = getBaseUrl();
-          const headers = getHeaders();
-          const res = await fetch(baseUrl + '/rest/v1/reviews?on_conflict=venue_id,author_id', {
-            method: 'POST',
-            headers: { ...headers, 'Prefer': 'resolution=merge-duplicates' },
-            body: JSON.stringify([{
-              venue_id: vId,
-              author_id: aId,
-              visited: rec.visited,
-              rating: rec.rating,
-              note: rec.note,
-              visit_date: rec.date,
-              updated_at: new Date().toISOString()
-            }])
-          });
-          if (!res.ok) {
-            console.error('[DB] Chyba při odesílání do Supabase:', res.status, await res.text());
-          }
-        } catch (e) {
-          console.error('[DB] Chyba při odesílání do Supabase:', e);
-        }
-      }
+      await flushPending();
 
       if (!skipNotify) {
         notifyChange();
@@ -300,20 +424,9 @@
     async deleteReview(venueId, authorId) {
       if (reviews[venueId] && reviews[venueId][authorId]) {
         delete reviews[venueId][authorId];
+        queueReview('delete', venueId, authorId);
         saveLocalState();
-
-        if (isCloudActive && this.isConfigured()) {
-          try {
-            const baseUrl = getBaseUrl();
-            const headers = getHeaders();
-            await fetch(baseUrl + `/rest/v1/reviews?venue_id=eq.${encodeURIComponent(venueId)}&author_id=eq.${encodeURIComponent(authorId)}`, {
-              method: 'DELETE',
-              headers
-            });
-          } catch (e) {
-            console.error('[DB] Chyba při mazání recenze:', e);
-          }
-        }
+        await flushPending();
 
         notifyChange();
       }
@@ -322,6 +435,8 @@
     // Kompletní reset databáze (lokálně i v cloudu)
     async resetDatabase(includeMembers = false) {
       reviews = {};
+      pending.reviews = {};
+      if (includeMembers) pending.members = {};
       if (includeMembers) {
         members = [...DEFAULT_MEMBERS];
         activeAuthorId = 'vojta';
@@ -332,10 +447,11 @@
         try {
           const baseUrl = getBaseUrl();
           const headers = getHeaders();
-          await fetch(baseUrl + '/rest/v1/reviews?id=not.is.null', {
+          const res = await fetch(baseUrl + '/rest/v1/reviews?id=not.is.null', {
             method: 'DELETE',
             headers
           });
+          if (!res.ok) console.error('[DB] Chyba při resetování cloudu:', res.status, await res.text());
 
           if (includeMembers) {
             await fetch(baseUrl + '/rest/v1/members?id=not.in.(vojta,peta,adel)', {
@@ -349,6 +465,24 @@
       }
 
       notifyChange();
+    },
+
+    // Import zálohy: data se sloučí s aktuálním stavem a zařadí do fronty,
+    // aby je následná synchronizace s cloudem nepřepsala.
+    async importData(importMembers, importReviews) {
+      (importMembers || []).forEach(m => {
+        if (!members.some(x => x.id === m.id)) members.push(m);
+        pending.members[m.id] = m;
+      });
+      Object.entries(importReviews || {}).forEach(([vId, byAuthor]) => {
+        Object.entries(byAuthor || {}).forEach(([aId, r]) => {
+          if (!reviews[vId]) reviews[vId] = {};
+          reviews[vId][aId] = r;
+          queueReview('upsert', vId, aId, r);
+        });
+      });
+      saveLocalState();
+      return this.init();
     },
 
     // Získání recenze konkrétního člověka
