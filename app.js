@@ -292,8 +292,9 @@ function animateTo(x, y, k, animate) {
 }
 
 /* Ukazatel (myš + dotyk) */
-let drag = null, moved = 0;
+let drag = null, moved = 0, lastPointer = 'mouse';
 wrap.addEventListener('pointerdown', e => {
+  lastPointer = e.pointerType;
   if (e.button !== 0 && e.pointerType === 'mouse') return;
   drag = { px: e.clientX, py: e.clientY, ox: view.x, oy: view.y, id: e.pointerId };
   moved = 0;
@@ -312,8 +313,10 @@ const endDrag = e => { if (drag && drag.id === e.pointerId) drag = null; };
 wrap.addEventListener('pointerup', endDrag);
 wrap.addEventListener('pointercancel', endDrag);
 
-wrap.addEventListener('pointerup', e => {
-  const tapThreshold = e.pointerType === 'touch' ? 18 : 6;
+/* Výběr podniku až na 'click', ne na 'pointerup': na dotyku by se jinak detail otevřel
+   a následný (syntetický) click by trefil zatmění #detailScrim a detail hned zavřel. */
+wrap.addEventListener('click', e => {
+  const tapThreshold = lastPointer === 'touch' ? 18 : 6;
   if (moved > tapThreshold) return;
   const t = document.elementFromPoint(e.clientX, e.clientY);
   if (!t || !t.closest('#map')) return;

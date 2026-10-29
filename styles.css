@@ -386,3 +386,29 @@
 @media (min-width: 1024px) and (max-width: 1439px) {
   .floor-tab { padding-left: .55rem; padding-right: .55rem; }
 }
+
+/* Mobil: lišta pater od levého okraje až ke značce severu (centrovaná pod ni zajížděla),
+   legenda (kdo má jakou barvu) je vidět i na telefonu – nad tlačítkem „Seznam podniků“. */
+@media (max-width: 639px) {
+  #floorBar {
+    left: .5rem;
+    transform: none;
+    max-width: calc(100% - 3.75rem);
+  }
+  #mapLegend {
+    display: block;
+    bottom: 4rem;
+    padding: .375rem .625rem;
+    font-size: 11px;
+    max-width: calc(100% - 5.5rem);
+  }
+  #mapLegend > * + * { margin-top: .25rem; }
+  /* Pruh „Mapa návštěv: …“ – tlačítko Zpět se nesmí lámat do sloupce */
+  .banner-inspect { width: max-content; max-width: calc(100% - 1rem); }
+  .banner-inspect button { white-space: nowrap; }
+}
+/* Na úzkých telefonech se název aplikace vedle tlačítek zkrátil na „|“ – raději ho skryj */
+@media (max-width: 379px) {
+  header h1 { display: none; }
+}
+
