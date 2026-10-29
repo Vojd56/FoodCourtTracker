@@ -36,6 +36,8 @@ if (envUrl || envKey) {
       if (stored) {
         const parsed = JSON.parse(stored);
         if (parsed && typeof parsed === 'object') {
+          // Uživatel si výslovně zvolil lokální režim
+          if (parsed.localOnly) return { supabaseUrl: '', supabaseAnonKey: '', localOnly: true };
           const u = (parsed.supabaseUrl && parsed.supabaseUrl.trim()) || DEFAULT_CONFIG.supabaseUrl;
           let k = (parsed.supabaseAnonKey && parsed.supabaseAnonKey.trim()) || DEFAULT_CONFIG.supabaseAnonKey;
           if (!k || k.startsWith('sb_secret_')) {
@@ -53,6 +55,7 @@ if (envUrl || envKey) {
   window.saveAppConfig = function(url, key) {
     window.APP_CONFIG.supabaseUrl = (url || '').trim();
     window.APP_CONFIG.supabaseAnonKey = (key || '').trim();
+    window.APP_CONFIG.localOnly = !window.APP_CONFIG.supabaseUrl && !window.APP_CONFIG.supabaseAnonKey;
     try {
       localStorage.setItem('fnk_supabase_config', JSON.stringify(window.APP_CONFIG));
     } catch {}

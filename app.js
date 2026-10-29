@@ -867,10 +867,12 @@ function renderList() {
 function renderProgress() {
   const tot = VENUES.length, done = VENUES.filter(v => isVisited(v.id)).length;
   const pct = tot ? Math.round(done / tot * 100) : 0;
-  $('#progCount').textContent = done;
-  $('#progTotal').textContent = tot;
-  $('#progBar').style.width = pct + '%';
-  $('#progPct').textContent = pct + ' %';
+  // Kompaktní hlavička má jen počítadlo — progress bar a procenta nemusí v HTML existovat
+  const cnt = $('#progCount'), total = $('#progTotal'), bar = $('#progBar'), pctEl = $('#progPct');
+  if (cnt) cnt.textContent = done;
+  if (total) total.textContent = tot;
+  if (bar) bar.style.width = pct + '%';
+  if (pctEl) pctEl.textContent = pct + ' %';
 }
 
 function renderFloors() {
@@ -1603,10 +1605,13 @@ document.addEventListener('click', async e => {
         return;
       }
       const rd = new FileReader();
-      rd.onload = () => {
+      rd.onload = async () => {
         try {
           const d = JSON.parse(rd.result);
           if (!d || typeof d !== 'object' || Array.isArray(d)) throw 0;
+
+          let importedMembers = [];
+          let importedReviews = {};
 
           // Bezpečná validace recenzí (ochrana před Prototype Pollution)
           if (d.reviews && typeof d.reviews === 'object' && !Array.isArray(d.reviews)) {
@@ -1627,7 +1632,7 @@ document.addEventListener('click', async e => {
                 };
               }
             }
-            localStorage.setItem('fnk_reviews_v2', JSON.stringify(cleanReviews));
+            importedReviews = cleanReviews;
           }
 
           // Bezpečná validace členů
@@ -1638,15 +1643,13 @@ document.addEventListener('click', async e => {
               color: /^#[0-9a-fA-F]{6}$/.test(m.color) ? m.color : '#3b8559',
               logo: String(m.logo || '👤').slice(0, 8)
             })).filter(m => m.id && m.name && m.id !== '__proto__');
-            if (cleanMembers.length) {
-              localStorage.setItem('fnk_members_v2', JSON.stringify(cleanMembers));
-            }
+            importedMembers = cleanMembers;
           }
 
-          if (window.DB) window.DB.init();
+          closeModal();
+          if (window.DB) await window.DB.importData(importedMembers, importedReviews);
           renderMemberNavTabs();
           renderAll();
-          closeModal();
           toast('Úspěšně importováno');
         } catch { toast('Neplatný soubor zálohy', true); }
       };
