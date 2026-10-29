@@ -31,7 +31,8 @@
   let listeners = [];
   // pending.reviews: { "venueId|authorId": { op: 'upsert'|'delete', venueId, authorId, rec } }
   // pending.members: { [memberId]: member }
-  let pending = { reviews: {}, members: {} };
+  // pending.deletedMembers: { [memberId]: true } — smazaní členové, které cloud ještě nepotvrdil
+  let pending = { reviews: {}, members: {}, deletedMembers: {} };
   let initPromise = null;
 
   const notifyChange = () => listeners.forEach(fn => { try { fn(); } catch (e) { console.error(e); } });
@@ -90,10 +91,11 @@
       const p = JSON.parse(localStorage.getItem(PENDING_KEY) || 'null');
       pending = {
         reviews: (p && p.reviews && typeof p.reviews === 'object') ? p.reviews : {},
-        members: (p && p.members && typeof p.members === 'object') ? p.members : {}
+        members: (p && p.members && typeof p.members === 'object') ? p.members : {},
+        deletedMembers: (p && p.deletedMembers && typeof p.deletedMembers === 'object') ? p.deletedMembers : {}
       };
     } catch {
-      pending = { reviews: {}, members: {} };
+      pending = { reviews: {}, members: {}, deletedMembers: {} };
     }
   }
 
@@ -106,6 +108,7 @@
   // Přenese čekající (ještě neodeslané) změny přes data načtená z cloudu,
   // aby je pravidelná synchronizace nepřepsala.
   function applyPending() {
+    Object.keys(pending.deletedMembers).forEach(removeMemberLocally);
     Object.values(pending.members).forEach(m => {
       if (!members.some(x => x.id === m.id)) members.push(m);
     });
@@ -117,6 +120,13 @@
         reviews[p.venueId][p.authorId] = p.rec;
       }
     });
+  }
+
+  // Odstraní člena a všechny jeho recenze z lokálního stavu
+  function removeMemberLocally(id) {
+    members = members.filter(m => m.id !== id);
+    Object.values(reviews).forEach(byAuthor => { if (byAuthor) delete byAuthor[id]; });
+    if (activeAuthorId === id) activeAuthorId = members[0] ? members[0].id : 'vojta';
   }
 
   async function sendReview(p) {
@@ -150,8 +160,27 @@
     const baseUrl = getBaseUrl();
     const headers = getHeaders();
 
+    // Smazání členů (recenze v cloudu smaže ON DELETE CASCADE)
+    for (const id of Object.keys(pending.deletedMembers)) {
+      try {
+        const res = await fetch(baseUrl + `/rest/v1/members?id=eq.${encodeURIComponent(id)}`, {
+          method: 'DELETE',
+          headers
+        });
+        if (res.ok) {
+          delete pending.deletedMembers[id];
+        } else {
+          console.error('[DB] Nepodařilo se smazat člena v cloudu:', res.status, await res.text());
+        }
+      } catch (e) {
+        console.warn('[DB] Nepodařilo se smazat člena v cloudu:', e);
+        break;
+      }
+    }
+
     // Nejdřív členové — recenze na ně odkazují cizím klíčem (author_id)
-    const ms = Object.values(pending.members);
+    // Člen se stejným ID, jehož smazání cloud ještě nepotvrdil, musí počkat
+    const ms = Object.values(pending.members).filter(m => !pending.deletedMembers[m.id]);
     if (ms.length) {
       try {
         const res = await fetch(baseUrl + '/rest/v1/members?on_conflict=id', {
@@ -170,7 +199,7 @@
     }
 
     for (const [key, p] of Object.entries(pending.reviews)) {
-      if (pending.members[p.authorId]) continue; // autor ještě není v cloudu
+      if (pending.members[p.authorId] || pending.deletedMembers[p.authorId]) continue; // autor ještě není v cloudu
       try {
         const res = await sendReview(p);
         if (res.ok) {
@@ -189,11 +218,16 @@
 
   // První spojení s cloudem: lokální data, která v cloudu nejsou, zařadit do fronty
   function queueLocalOnlyData(localMembers, localReviews, cloudMemberIds, cloudReviews) {
+    const hasLocalReviews = id => Object.values(localReviews).some(byAuthor => byAuthor && byAuthor[id]);
     localMembers.forEach(m => {
-      if (!cloudMemberIds.has(m.id)) pending.members[m.id] = m;
+      if (cloudMemberIds.has(m.id)) return;
+      // Výchozí osoba bez vlastních záznamů mohla být v cloudu záměrně smazána — neoživovat ji
+      if (DEFAULT_MEMBERS.some(d => d.id === m.id) && !hasLocalReviews(m.id)) return;
+      pending.members[m.id] = m;
     });
     Object.entries(localReviews).forEach(([vId, byAuthor]) => {
       Object.entries(byAuthor || {}).forEach(([aId, r]) => {
+        if (!cloudMemberIds.has(aId) && !pending.members[aId]) return;
         if (!(cloudReviews[vId] && cloudReviews[vId][aId]) && !pending.reviews[pendingKey(vId, aId)]) {
           queueReview('upsert', vId, aId, r);
         }
@@ -238,14 +272,11 @@
           const resM = await fetch(baseUrl + '/rest/v1/members?select=*', { headers });
           if (resM.ok) {
             const dbMembers = await resM.json();
-            if (Array.isArray(dbMembers) && dbMembers.length) {
-              const existingIds = new Set(dbMembers.map(m => m.id));
-              cloudMemberIds = existingIds;
-              const mergedMembers = [...dbMembers];
-              DEFAULT_MEMBERS.forEach(def => {
-                if (!existingIds.has(def.id)) mergedMembers.push(def);
-              });
-              members = mergedMembers;
+            if (Array.isArray(dbMembers)) {
+              // Seznam členů v cloudu je směrodatný — výchozí osoby se nedoplňují,
+              // aby se smazaný člen nevracel zpět
+              cloudMemberIds = new Set(dbMembers.map(m => m.id));
+              members = [...dbMembers];
 
               // Zachovat aktivního autora z paměti prohlížeče
               const savedAct = localStorage.getItem(ACTIVE_AUTHOR_KEY);
@@ -288,16 +319,16 @@
 
           isCloudActive = membersLoaded && reviewsLoaded;
           if (isCloudActive) {
-            // Výchozí osoby, které v cloudu chybí, tam nahrát (jinak by jejich recenze padaly na cizím klíči)
-            members.forEach(m => {
-              if (cloudMemberIds.size && !cloudMemberIds.has(m.id) && !pending.members[m.id]) pending.members[m.id] = m;
-            });
             let syncedOnce = false;
             try { syncedOnce = localStorage.getItem(SYNCED_KEY) === '1'; } catch {}
             if (!syncedOnce) {
               queueLocalOnlyData(localMembers, localReviews, cloudMemberIds, reviews);
               try { localStorage.setItem(SYNCED_KEY, '1'); } catch {}
             }
+            // Recenze čekající na člena, kterého mezitím někdo smazal, už nikdy neprojdou
+            Object.entries(pending.reviews).forEach(([key, p]) => {
+              if (!cloudMemberIds.has(p.authorId) && !pending.members[p.authorId]) delete pending.reviews[key];
+            });
           } else {
             // Cloud se načetl jen napůl — nepřepisovat lokální data
             members = localMembers;
@@ -384,6 +415,28 @@
 
       notifyChange();
       return newMember;
+    },
+
+    // Smazání člena včetně všech jeho návštěv a hodnocení (lokálně i v cloudu)
+    async deleteMember(id) {
+      if (!members.some(m => m.id === id)) return;
+      if (members.length <= 1) throw new Error('Posledního člena party nelze smazat.');
+
+      removeMemberLocally(id);
+      delete pending.members[id];
+      Object.entries(pending.reviews).forEach(([key, p]) => {
+        if (p.authorId === id) delete pending.reviews[key];
+      });
+      pending.deletedMembers[id] = true;
+      saveLocalState();
+      await flushPending();
+
+      notifyChange();
+    },
+
+    // Počet záznamů (návštěv / hodnocení) dané osoby
+    getMemberReviewCount(id) {
+      return Object.values(reviews).filter(byAuthor => byAuthor && byAuthor[id]).length;
     },
 
     // Uložení recenze podniku pro vybranou osobu
