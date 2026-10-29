@@ -950,8 +950,10 @@ function renderFloors() {
   $('#floorBar').innerHTML = FLOORS.filter(f => !isOutside(f)).map(f => {
     const arr = VENUES.filter(v => v.floor === f.id);
     const done = arr.filter(v => isVisited(v.id)).length;
-    return `<button data-f="${f.id}" class="floor-tab ${ui.floor === f.id ? 'active' : ''}">
-      ${esc(f.short.replace(/^[^\p{L}\p{N}−-]+/u, ''))}${arr.length ? `<small>${done}/${arr.length}</small>` : ''}</button>`;
+    // Na mobilu se lišta zobrazí svisle u pravého okraje jen s čísly pater (ft-num), viz styles.css
+    const num = f.id.replace(/^p/, '').replace(/^m/, '−');
+    return `<button data-f="${f.id}" class="floor-tab ${ui.floor === f.id ? 'active' : ''}" title="${esc(f.name)}${arr.length ? ` · ${done}/${arr.length}` : ''}">
+      <span class="ft-long">${esc(f.short.replace(/^[^\p{L}\p{N}−-]+/u, ''))}${arr.length ? `<small>${done}/${arr.length}</small>` : ''}</span><span class="ft-num">${num}</span></button>`;
   }).join('');
   $$('#floorBar [data-f]').forEach(b => b.onclick = () => {
     if (ui.floor === b.dataset.f) return;
@@ -1254,7 +1256,7 @@ const modalHead = title => `
 /* MODÁL PRO PŘIDÁNÍ NOVÉHO ČLOVĚKA A LOGA */
 function openAddMemberModal() {
   const emojis = ['👑', '🍕', '✨', '🍔', '☕', '🍣', '🌮', '🍩', '🥑', '🥩', '🍜', '🍦', '🍻', '🍟', '🦁', '🚀', '⭐', '🎈'];
-  const colors = ['#2563eb', '#e11d48', '#9333ea', '#3b8559', '#ea580c', '#0d9488', '#d97706', '#ec4899'];
+  const colors = ['#6b8e23', '#0891b2', '#9333ea', '#2563eb', '#ea580c', '#0d9488', '#d97706', '#ec4899'];
   let selectedEmoji = emojis[0];
   let selectedColor = colors[0];
 

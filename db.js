@@ -11,8 +11,8 @@
 
   // Výchozí členové
   const DEFAULT_MEMBERS = [
-    { id: 'vojta', name: 'Vojta', color: '#2563eb', logo: '👑' },
-    { id: 'peta',  name: 'Peťa',  color: '#e11d48', logo: '🍕' },
+    { id: 'vojta', name: 'Vojta', color: '#6b8e23', logo: '👑' },
+    { id: 'peta',  name: 'Peťa',  color: '#0891b2', logo: '🍕' },
     { id: 'adel',  name: 'Adél',  color: '#9333ea', logo: '✨' }
   ];
 

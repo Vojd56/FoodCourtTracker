@@ -37,8 +37,8 @@ CREATE INDEX IF NOT EXISTS idx_reviews_visited ON public.reviews(visited);
 -- 3. Výchozí osoby: Vojta, Peťa, Adél
 INSERT INTO public.members (id, name, color, logo)
 VALUES
-  ('vojta', 'Vojta', '#2563eb', '👑'),
-  ('peta', 'Peťa', '#e11d48', '🍕'),
+  ('vojta', 'Vojta', '#6b8e23', '👑'),
+  ('peta', 'Peťa', '#0891b2', '🍕'),
   ('adel', 'Adél', '#9333ea', '✨')
 ON CONFLICT (id) DO UPDATE SET
   name = EXCLUDED.name,

@@ -70,6 +70,7 @@
 .floor-tab:hover { color: var(--ink); background: #fff; }
 .floor-tab.active { background: var(--ink); color: var(--paper); }
 .floor-tab small { margin-left: .25rem; font-size: .6875rem; opacity: .6; font-variant-numeric: tabular-nums; }
+.floor-tab .ft-num { display: none; }
 
 /* ---------- Seznam ---------- */
 .list-head {
@@ -390,11 +391,21 @@
 /* Mobil: lišta pater od levého okraje až ke značce severu (centrovaná pod ni zajížděla),
    legenda (kdo má jakou barvu) je vidět i na telefonu – nad tlačítkem „Seznam podniků“. */
 @media (max-width: 639px) {
+  /* Patra jako svislý sloupec čísel (2, 1, 0, −1, −2) u pravého okraje, uprostřed výšky */
   #floorBar {
-    left: .5rem;
-    transform: none;
-    max-width: calc(100% - 3.75rem);
+    left: auto; right: .75rem;
+    top: 50%; transform: translateY(-50%);
+    flex-direction: column;
+    max-width: none; overflow: visible;
   }
+  #floorBar .floor-tab {
+    width: 2.75rem; min-height: 2.75rem; padding: 0;
+    border-right: 0; border-bottom: 1px solid var(--line);
+    font-size: 1rem; font-weight: 600; font-variant-numeric: tabular-nums;
+  }
+  #floorBar .floor-tab:last-child { border-bottom: 0; }
+  #floorBar .ft-long { display: none; }
+  #floorBar .ft-num { display: inline; }
   #mapLegend {
     display: block;
     bottom: 4rem;
@@ -407,13 +418,27 @@
   .banner-inspect { width: max-content; max-width: calc(100% - 1rem); }
   .banner-inspect button { white-space: nowrap; }
 }
-/* Na úzkých telefonech se název aplikace vedle tlačítek zkrátil na „|“ – raději ho skryj */
-@media (max-width: 379px) {
-  header h1 { display: none; }
+/* Na telefonu se celý název vedle tlačítek nevejde (zkracoval se na „FOOD C…“) – ukaž zkratku FCT */
+header h1 .t-short { display: none; }
+@media (max-width: 639px) {
+  header h1 .t-long { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  header h1 .t-short { display: inline; }
+  header > div:first-child { flex-shrink: 0; }
+  header h1 { overflow: visible; }
+}
+/* Úzké telefony: u Cloud/Offline stačí barevná tečka, ať se vejde FCT */
+@media (max-width: 399px) {
+  #cloudStatusBadge .font-bold { display: none; }
 }
 
 /* Mobilní prohlížeče: 100vh počítá i s plochou pod lištou prohlížeče, takže spodek
    aplikace (legenda, +/−, Seznam podniků) byl schovaný. dvh = skutečně viditelná výška. */
 .h-screen { height: 100vh; height: 100dvh; }
 #mapWrap { -webkit-touch-callout: none; }
+
+/* Nízké telefony: menší čísla pater a sloupec výš, aby nenarazil na tlačítka +/− */
+@media (max-width: 639px) and (max-height: 700px) {
+  #floorBar { top: calc(50% - 1.5rem); }
+  #floorBar .floor-tab { width: 2.5rem; min-height: 2.25rem; font-size: .9375rem; }
+}
 
