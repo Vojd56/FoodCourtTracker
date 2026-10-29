@@ -368,3 +368,19 @@
 }
 
 
+
+/* Lišta pater: na desktopu ji centrujeme podle okna, ne podle mapy.
+   Mapa se při otevření detailu podniku zúží (detail je v toku vedle ní),
+   takže centrování na mapu by lištu posouvalo. Sidebar má 340px, detail 360px;
+   max-width hlídá, aby lišta nezajela pod ani jeden z panelů. Značku severu
+   posouváme pod lištu, aby se s ní na užších desktopech nepřekrývala. */
+@media (min-width: 1024px) {
+  #floorBar {
+    left: calc(50vw - 340px);
+    max-width: calc(100vw - 2 * (360px + .75rem));
+  }
+  #northMark { top: 3.5rem; }
+}
+@media (min-width: 1024px) and (max-width: 1439px) {
+  .floor-tab { padding-left: .55rem; padding-right: .55rem; }
+}
